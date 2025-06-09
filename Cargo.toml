@@ -1,0 +1,17 @@
+[package]
+name = "sms-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.45.1", features = ["full"] }
+anyhow = "1.0.98"
+tokio-serial = "5.4.5"
+tokio-util = { version = "0.7.15", features = ["compat"] }
+uuid = { version = "1.17.0", features = ["v4"] }
+log = "0.4.27"
+serde = { version = "1.0.219", features = ["derive"] }
+env_logger = "0.11.8"
+axum = "0.8.4"
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features = ["cors"] }
