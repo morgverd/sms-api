@@ -3,11 +3,12 @@ use tokio::sync::{mpsc, Mutex, oneshot};
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use log::{debug, error, warn};
+use log::{debug, error};
 use crate::modem::buffer::LineBuffer;
-use crate::modem::commands::{CommandContext, CommandTracker, next_command_sequence};
-use crate::modem::handlers::command_sender;
+use crate::modem::commands::{CommandTracker, next_command_sequence};
 use crate::modem::commands::OutgoingCommand;
+use crate::modem::handlers::ModemEventHandlers;
+use crate::modem::state_machine::ModemStateMachine;
 use crate::modem::types::{
     ModemConfig,
     ModemReadState,
@@ -79,7 +80,7 @@ impl ModemManager {
 
             if !response_str.contains(&*expected_str) {
                 bail!(
-                    "Command '{}' failed. Expected: '{}', Got: '{}'",
+                    "Initialization command '{}' failed. Expected: '{}', Got: '{}'",
                     command_str, expected_str, response_str.trim()
                 );
             }
@@ -113,7 +114,7 @@ impl ModemManager {
             // Wait for response with timeout
             match tokio::time::timeout(tokio::time::Duration::from_secs(60), rx).await {
                 Ok(Ok(response)) => {
-                    debug!("Command sequence {} completed: {:?}", sequence, response);
+                    debug!("Command sequence {} completed!", sequence);
                     Ok(response)
                 }
                 Ok(Err(e)) => {
@@ -132,36 +133,29 @@ impl ModemManager {
         mut command_rx: mpsc::UnboundedReceiver<OutgoingCommand>,
         main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     ) -> Result<()> {
-        let mut read_state = ModemReadState::Idle;
+        let mut state_machine = ModemStateMachine::default();
         let mut line_buffer = LineBuffer::new();
         let mut command_tracker = CommandTracker::new();
 
         loop {
             tokio::select! {
                 // Command sender: only pick up if idle.
-                Some(cmd) = command_rx.recv(), if matches!(read_state, ModemReadState::Idle) && command_tracker.active_command.is_none() => {
+                Some(cmd) = command_rx.recv(), if state_machine.can_accept_command() && command_tracker.is_idle() => {
                     debug!("Received new command sequence {}: {:?}", cmd.sequence, cmd.request);
+                    let cmd: OutgoingCommand = cmd;
 
-                    match command_sender(&port, &cmd.request).await {
+                    match ModemEventHandlers::command_sender(&port, &cmd.request).await {
                         Ok(state) => {
-                            // Properly track the command
+
+                            // Start the current command.
+                            let sequence = cmd.sequence;
                             if let Err(e) = command_tracker.start_command(cmd) {
                                 error!("Failed to start command tracking: {}", e);
                                 continue;
                             }
 
-                            // Get the command back from tracker to use in read_state
-                            if let Some(tracked_cmd) = &command_tracker.active_command {
-                                let ctx = CommandContext {
-                                    cmd: tracked_cmd.clone(),
-                                    state,
-                                    response_buffer: String::new()
-                                };
-                                read_state = ModemReadState::Command(ctx);
-                            }
-
-                            debug!("Started tracking command sequence {}",
-                                   command_tracker.get_active_sequence().unwrap_or(0));
+                            state_machine.start_command(sequence);
+                            debug!("Started tracking command sequence {}", sequence);
                         }
                         Err(e) => {
                             error!("Failed to send command sequence {}: {}", cmd.sequence, e);
@@ -188,13 +182,16 @@ impl ModemManager {
 
                         // Process all complete lines/prompts from the buffer.
                         for line_event in line_buffer.process_data(&data) {
-                            match ModemManager::process_modem_event(read_state, line_event, &main_tx, &port, &mut command_tracker).await {
-                                Ok(new_state) => {
-                                    read_state = new_state;
-                                }
+                            match state_machine.transition_state(
+                                line_event,
+                                &main_tx,
+                                &port,
+                                &mut command_tracker
+                            ).await {
+                                Ok(_) => { },
                                 Err(e) => {
                                     error!("Error processing modem event: {:?}", e);
-                                    read_state = ModemReadState::Idle;
+                                    state_machine.reset_to_idle();
                                 }
                             }
                         }
@@ -202,20 +199,13 @@ impl ModemManager {
                 }
 
                 // Timeout handling for commands that take too long
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)), if matches!(read_state, ModemReadState::Command(_)) => {
-                    // Check both the read_state and command_tracker for consistency
-                    if let ModemReadState::Command(ctx) = &read_state {
-                        warn!("Command {} timed out", ctx.cmd.sequence);
-                    }
-
-                    // Use the command tracker's timeout logic
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)), if state_machine.has_active_command() => {
                     if let Some(expired_cmd) = command_tracker.force_timeout_active_command() {
                         expired_cmd.respond(ModemResponse::Error {
                             message: "Command timeout".to_string(),
                         }).await;
+                        state_machine.reset_to_idle();
                     }
-
-                    read_state = ModemReadState::Idle;
                 }
             }
         }

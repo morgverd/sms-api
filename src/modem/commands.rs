@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::{Mutex, oneshot};
 use tokio::time::Instant;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use log::{debug, error, warn};
 use crate::modem::types::{ModemRequest, ModemResponse};
 
@@ -14,7 +14,7 @@ pub fn next_command_sequence() -> u32 {
 
 #[derive(Debug)]
 pub struct CommandContext {
-    pub cmd: OutgoingCommand,
+    pub sequence: u32,
     pub state: CommandState,
     pub response_buffer: String
 }
@@ -89,46 +89,40 @@ impl Clone for OutgoingCommand {
 
 #[derive(Debug)]
 pub struct CommandTracker {
-    pub active_command: Option<OutgoingCommand>,
-    pub command_history: Vec<(u32, String)>
+    active_command: Option<OutgoingCommand>,
 }
 impl CommandTracker {
     pub fn new() -> Self {
         Self {
-            active_command: None,
-            command_history: Vec::new(),
+            active_command: None
+        }
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.active_command.is_none()
+    }
+
+    pub fn get_active_command(&self) -> Option<&OutgoingCommand> {
+        self.active_command.as_ref()
+    }
+
+    pub async fn complete_active_command(&mut self, response: ModemResponse) -> Result<()> {
+        if let Some(cmd) = self.active_command.take() {
+            cmd.respond(response).await;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("No active command to respond to"))
         }
     }
 
     pub fn start_command(&mut self, cmd: OutgoingCommand) -> Result<()> {
-        if self.active_command.is_some() {
-            return Err(anyhow::anyhow!("Cannot start command - another command is active"));
+        if !self.is_idle() {
+            return Err(anyhow!("Cannot start command - another command is active"));
         }
 
-        debug!("Starting command sequence {}: {:?}", cmd.sequence, cmd.request);
-        self.command_history.push((cmd.sequence, format!("{:?}", cmd.request)));
-
-        // Keep only last 10 commands in history
-        if self.command_history.len() > 10 {
-            self.command_history.remove(0);
-        }
-
+        debug!("Starting OutgoingCommand {}: {:?}", cmd.sequence, cmd.request);
         self.active_command = Some(cmd);
         Ok(())
-    }
-
-    pub fn complete_command(&mut self) -> Option<OutgoingCommand> {
-        if let Some(cmd) = self.active_command.take() {
-            debug!("Completed command sequence {}: {:?}", cmd.sequence, cmd.request);
-            Some(cmd)
-        } else {
-            warn!("Attempted to complete command but no active command found");
-            None
-        }
-    }
-
-    pub fn get_active_sequence(&self) -> Option<u32> {
-        self.active_command.as_ref().map(|cmd| cmd.sequence)
     }
 
     pub fn is_command_expired(&self, timeout_secs: u64) -> bool {

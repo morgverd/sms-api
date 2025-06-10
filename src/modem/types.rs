@@ -1,12 +1,15 @@
 use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
-use crate::modem::commands::CommandContext;
+use crate::modem::commands::{CommandContext, CommandState};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModemRequest {
     SendSMS { len: u64, pdu: String },
     GetNetworkStatus,
-    GetSignalStrength
+    GetSignalStrength,
+    GetNetworkOperator,
+    GetServiceProvider,
+    GetBatteryLevel
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,6 +23,17 @@ pub enum ModemResponse {
         ber: i32,
         quality: String
     },
+    NetworkOperator {
+        operator: String
+    },
+    ServiceProvider {
+        operator: String
+    },
+    BatteryLevel {
+        status: u8,
+        charge: u8,
+        voltage: f32
+    },
     Error { message: String }
 }
 impl Display for ModemResponse {
@@ -31,6 +45,12 @@ impl Display for ModemResponse {
                 write!(f, "NetworkStatus: {}", operator),
             Self::SignalStrength { rssi, quality, .. } =>
                 write!(f, "SignalStrength: {} dBm ({})", rssi, quality),
+            Self::NetworkOperator { operator, .. } =>
+                write!(f, "NetworkOperator: {}", operator),
+            Self::ServiceProvider { operator, .. } =>
+                write!(f, "ServiceProvider: {}", operator),
+            Self::BatteryLevel { status, charge, voltage } =>
+                write!(f, "BatteryLevel. Status: {}, Charge: {}, Voltage: {}", status, charge, voltage),
             Self::Error { message } =>
                 write!(f, "Error: {}", message)
         }
@@ -39,7 +59,10 @@ impl Display for ModemResponse {
 
 #[derive(Debug)]
 pub enum ModemEvent {
-    UnsolicitedNotification(String),
+    UnsolicitedMessage {
+        message_type: UnsolicitedMessageType,
+        header: String
+    },
     CommandResponse(String),
     Data(String),
     Prompt(String),
@@ -55,7 +78,8 @@ pub struct ModemConfig {
 pub enum UnsolicitedMessageType {
     IncomingSMS,
     IncomingCall,
-    DeliveryReport
+    DeliveryReport,
+    NetworkStatusChange
 }
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
@@ -65,15 +89,17 @@ impl UnsolicitedMessageType {
             Some(Self::IncomingCall)
         } else if header.starts_with("+CDS") {
             Some(Self::DeliveryReport)
+        } else if header.starts_with("+CGREG:") {
+            Some(Self::NetworkStatusChange)
         } else {
             None
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum ModemReadState {
-    Idle,
+    #[default] Idle,
     Command(CommandContext),
     UnsolicitedMessage {
         message_type: UnsolicitedMessageType,
@@ -101,5 +127,8 @@ pub enum ModemIncomingMessage {
     IncomingCall,
     DeliveryReport {
         id: String
+    },
+    NetworkStatusChange {
+        status: u8
     },
 }
