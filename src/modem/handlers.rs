@@ -5,7 +5,12 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio_serial::SerialStream;
 use crate::modem::commands::CommandState;
-use crate::modem::types::{ModemRequest, ModemResponse, ReceivedSMSMessage};
+use crate::modem::types::{
+    ModemRequest,
+    ModemResponse,
+    ModemIncomingMessage,
+    UnsolicitedMessageType
+};
 
 pub async fn command_sender(
     port: &Arc<Mutex<SerialStream>>,
@@ -39,7 +44,7 @@ pub async fn prompt_handler(
 ) -> Result<Option<CommandState>> {
 
     if let ModemRequest::SendSMS { len, pdu } = request {
-        info!("Sending PDU: len = {}, pdu = {}", len, pdu);
+        debug!("Sending PDU: len = {}, pdu = {}", len, pdu);
         {
             let mut port_guard = port.lock().await;
             port_guard.write_all(pdu.as_bytes()).await?;
@@ -51,10 +56,29 @@ pub async fn prompt_handler(
     Ok(None)
 }
 
-pub async fn handle_incoming_sms(
+pub async fn handle_unsolicited_message(
+    message_type: &UnsolicitedMessageType,
+    header: &str,
     content: &str
-) -> Result<Option<ReceivedSMSMessage>> {
-    Ok(None)
+) -> Result<Option<ModemIncomingMessage>> {
+    match message_type {
+        UnsolicitedMessageType::IncomingSMS => {
+            Ok(Some(ModemIncomingMessage::IncomingSMS {
+                id: header.to_string(),
+                to: "to".to_string(),
+                content: content.to_string(),
+                timestamp: 0,
+            }))
+        },
+        UnsolicitedMessageType::IncomingCall => {
+            Ok(Some(ModemIncomingMessage::IncomingCall))
+        },
+        UnsolicitedMessageType::DeliveryReport => {
+            Ok(Some(ModemIncomingMessage::DeliveryReport {
+                id: content.to_string(),
+            }))
+        }
+    }
 }
 
 pub async fn command_responder(

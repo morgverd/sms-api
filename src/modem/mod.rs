@@ -3,12 +3,18 @@ use tokio::sync::{mpsc, Mutex, oneshot};
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::{CommandContext, CommandTracker, next_command_sequence};
 use crate::modem::handlers::command_sender;
 use crate::modem::commands::OutgoingCommand;
-use crate::modem::types::{ModemConfig, ModemReadState, ModemRequest, ModemResponse, ReceivedSMSMessage};
+use crate::modem::types::{
+    ModemConfig,
+    ModemReadState,
+    ModemRequest,
+    ModemResponse,
+    ModemIncomingMessage
+};
 
 pub mod types;
 mod handlers;
@@ -19,21 +25,21 @@ mod buffer;
 #[derive(Clone)]
 pub struct ModemManager {
     config: ModemConfig,
-    sms_tx: mpsc::UnboundedSender<ReceivedSMSMessage>,
+    main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     command_tx: Option<mpsc::UnboundedSender<OutgoingCommand>>
 }
 
 impl ModemManager {
-    pub fn new(config: ModemConfig) -> (Self, mpsc::UnboundedReceiver<ReceivedSMSMessage>) {
-        let (sms_tx, sms_rx) = mpsc::unbounded_channel();
+    pub fn new(config: ModemConfig) -> (Self, mpsc::UnboundedReceiver<ModemIncomingMessage>) {
+        let (main_tx, main_rx) = mpsc::unbounded_channel();
 
         let manager = Self {
             config,
-            sms_tx,
+            main_tx,
             command_tx: None
         };
 
-        (manager, sms_rx)
+        (manager, main_rx)
     }
 
     pub async fn start(&mut self) -> Result<tokio::task::JoinHandle<()>> {
@@ -53,7 +59,8 @@ impl ModemManager {
             (b"ATE0", b"OK"),               // Disable echo
             (b"AT+CMGF=0", b"OK"),          // Set SMS message format to PDU
             (b"AT+CSCS=\"GSM\"", b"OK"),    // Use GSM 7-bit alphabet
-            (b"AT+CNMI=2,2,0,0,0", b"OK"),  // Ensure incoming SMS messages are sent unsolicited
+            (b"AT+CNMI=2,2,0,1,0", b"OK"),  // Receive all incoming SMS messages and delivery reports
+            (b"AT+CSMP=49,167,0,0", b"OK"), // Receive delivery receipts from sent messages
             (b"AT+CPMS=\"ME\",\"ME\",\"ME\"", b"+CPMS: 1,50,1,50,1,50\r\n\r\nOK") // Store all messages in memory only
         ];
         for (command, expected) in initialization_commands {
@@ -81,9 +88,9 @@ impl ModemManager {
 
         // Spawn the main modem handling task.
         // This is passed back to the main thread to be joined with the HTTP server.
-        let sms_tx = self.sms_tx.clone();
+        let main_tx = self.main_tx.clone();
         let handle = tokio::spawn(async move {
-            if let Err(e) = Self::modem_task(port, command_rx, sms_tx).await {
+            if let Err(e) = Self::modem_task(port, command_rx, main_tx).await {
                 error!("Modem task error: {}", e);
             }
         });
@@ -97,7 +104,7 @@ impl ModemManager {
             let (tx, rx) = oneshot::channel();
 
             let cmd = OutgoingCommand::new(sequence, request, tx);
-            info!("Queuing command sequence {}: {:?}", sequence, cmd.request);
+            debug!("Queuing command sequence {}: {:?}", sequence, cmd.request);
 
             // Send to the modem task
             command_tx.send(cmd)
@@ -123,7 +130,7 @@ impl ModemManager {
     async fn modem_task(
         port: Arc<Mutex<SerialStream>>,
         mut command_rx: mpsc::UnboundedReceiver<OutgoingCommand>,
-        sms_tx: mpsc::UnboundedSender<ReceivedSMSMessage>,
+        main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     ) -> Result<()> {
         let mut read_state = ModemReadState::Idle;
         let mut line_buffer = LineBuffer::new();
@@ -181,7 +188,7 @@ impl ModemManager {
 
                         // Process all complete lines/prompts from the buffer.
                         for line_event in line_buffer.process_data(&data) {
-                            match ModemManager::process_modem_event(read_state, line_event, &sms_tx, &port, &mut command_tracker).await {
+                            match ModemManager::process_modem_event(read_state, line_event, &main_tx, &port, &mut command_tracker).await {
                                 Ok(new_state) => {
                                     read_state = new_state;
                                 }

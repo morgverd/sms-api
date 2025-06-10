@@ -52,10 +52,31 @@ pub struct ModemConfig {
 }
 
 #[derive(Debug)]
+pub enum UnsolicitedMessageType {
+    IncomingSMS,
+    IncomingCall,
+    DeliveryReport
+}
+impl UnsolicitedMessageType {
+    pub fn from_header(header: &str) -> Option<Self> {
+        if header.starts_with("+CMT") {
+            Some(Self::IncomingSMS)
+        } else if header.starts_with("+RING") {
+            Some(Self::IncomingCall)
+        } else if header.starts_with("+CDS") {
+            Some(Self::DeliveryReport)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum ModemReadState {
     Idle,
     Command(CommandContext),
-    UnsolicitedCmt {
+    UnsolicitedMessage {
+        message_type: UnsolicitedMessageType,
         header: String,
         active_command: Option<CommandContext>
     }
@@ -70,11 +91,15 @@ pub enum SMSStatus {
 }
 
 #[derive(Debug)]
-pub struct ReceivedSMSMessage {
-    pub id: String,
-    pub from: String,
-    pub to: String,
-    pub content: String,
-    pub timestamp: u64,
-    pub status: SMSStatus
+pub enum ModemIncomingMessage {
+    IncomingSMS {
+        id: String,
+        to: String,
+        content: String,
+        timestamp: u64
+    },
+    IncomingCall,
+    DeliveryReport {
+        id: String
+    },
 }

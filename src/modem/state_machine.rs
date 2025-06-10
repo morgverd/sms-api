@@ -5,16 +5,22 @@ use tokio_serial::SerialStream;
 use anyhow::Result;
 use crate::modem::buffer::LineEvent;
 use crate::modem::commands::CommandTracker;
-use crate::modem::handlers::{command_responder, handle_incoming_sms, prompt_handler};
+use crate::modem::handlers::{command_responder, handle_unsolicited_message, prompt_handler};
 use crate::modem::ModemManager;
-use crate::modem::types::{ModemEvent, ModemReadState, ModemResponse, ReceivedSMSMessage};
+use crate::modem::types::{
+    ModemEvent,
+    ModemReadState,
+    ModemResponse,
+    ModemIncomingMessage,
+    UnsolicitedMessageType
+};
 
 impl ModemManager {
 
     pub async fn process_modem_event(
         read_state: ModemReadState,
         line_event: LineEvent,
-        sms_tx: &mpsc::UnboundedSender<ReceivedSMSMessage>,
+        main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
         port: &Arc<Mutex<SerialStream>>,
         command_tracker: &mut CommandTracker
     ) -> Result<ModemReadState> {
@@ -22,7 +28,7 @@ impl ModemManager {
             LineEvent::Line(content) => Self::classify_line(&content, &read_state),
             LineEvent::Prompt(content) => ModemEvent::Prompt(content),
         };
-        info!("STATES: {:?} | {:?}", read_state, modem_event);
+        debug!("process_modem_event: ModemReadState {:?} | ModemEvent {:?}", read_state, modem_event);
 
         if let Some(expired_cmd) = command_tracker.force_timeout_active_command() {
             error!("Command sequence {} timed out: {:?}", expired_cmd.sequence, expired_cmd.request);
@@ -32,63 +38,70 @@ impl ModemManager {
         }
 
         match (read_state, modem_event) {
-            (ModemReadState::UnsolicitedCmt { header, active_command }, ModemEvent::Data(content)) => {
-                info!("Complete CMT: {:?} -> {:?}", header, content);
-                match handle_incoming_sms(&content).await {
+
+            // Receive data for an unsolicited message, completing the state and returning
+            (ModemReadState::UnsolicitedMessage { message_type, header, active_command }, ModemEvent::Data(content)) => {
+
+                // Handle the unsolicited message data, sending the parsed ModemReceivedMessage back to main_tx.
+                match handle_unsolicited_message(&message_type, &header, &content).await {
                     Ok(message) => if let Some(message) = message {
-                        let _ = sms_tx.send(message);
+                        let _ = main_tx.send(message);
                     },
                     Err(e) => error!("Couldn't handle incoming SMS message with error: {:?}", e)
                 }
-                // Restore command context if present.
+
+                // Restore previous command context if present.
                 Ok(match active_command {
                     Some(ctx) => ModemReadState::Command(ctx),
                     None => ModemReadState::Idle,
                 })
             },
 
-            // Handle SMS content when we're in command state - DON'T change command state
+            // Handle unsolicited messages when in command state - DON'T change command state.
+            // TODO: Possibly queue this to be read again when available?
             (ModemReadState::Command(ctx), ModemEvent::Data(content))
-            if Self::looks_like_sms_content(&content) => {
-                warn!("Received SMS-like content during command execution: {:?}", content);
+            if Self::looks_like_unsolicited_content(&content) => {
+                error!("Received unsolicited content during command execution: {:?}", content);
                 Ok(ModemReadState::Command(ctx))
             },
 
-            // Unsolicited SMS during command.
-            (ModemReadState::Command(ctx), ModemEvent::UnsolicitedNotification(content))
-            if content.starts_with("+CMT:") => {
-                info!("SMS header received during command {}: {:?}", ctx.cmd.sequence, content);
-                Ok(ModemReadState::UnsolicitedCmt {
-                    header: content,
-                    active_command: Some(ctx)
-                })
-            },
+            // Handle the start of an unsolicited modem event, during command or idle states.
+            (read_state @ (ModemReadState::Command(_) | ModemReadState::Idle), ModemEvent::UnsolicitedNotification(content)) => {
+                match UnsolicitedMessageType::from_header(&content) {
+                    Some(message_type) => {
+                        let (active_command, context_info) = match read_state {
+                            ModemReadState::Command(ctx) => {
+                                let sequence = ctx.cmd.sequence;
+                                (Some(ctx), format!("during command {}", sequence))
+                            },
+                            ModemReadState::Idle => (None, "while idle".to_string()),
+                            _ => unreachable!()
+                        };
 
-            // Unsolicited SMS while idle (ideal).
-            (ModemReadState::Idle, ModemEvent::UnsolicitedNotification(content))
-            if content.starts_with("+CMT:") => {
-                info!("SMS header received while idle: {:?}", content);
-                Ok(ModemReadState::UnsolicitedCmt {
-                    header: content,
-                    active_command: None
-                })
-            },
+                        info!("Unsolicited message header received {}: {:?}", context_info, content);
+                        Ok(ModemReadState::UnsolicitedMessage {
+                            message_type,
+                            header: content,
+                            active_command
+                        })
+                    },
+                    None => {
+                        let context_info = match &read_state {
+                            ModemReadState::Command(ctx) => {
+                                let sequence = ctx.cmd.sequence;
+                                format!("during command {}", sequence)
+                            },
+                            ModemReadState::Idle => "while idle".to_string(),
+                            _ => unreachable!()
+                        };
 
-            // Handle other unsolicited notifications without changing command state.
-            (ModemReadState::Command(ctx), ModemEvent::UnsolicitedNotification(content)) => {
-                info!("Unsolicited notification during command {}: {:?}", ctx.cmd.sequence, content);
-                if let Err(e) = Self::handle_unsolicited_response(&content).await {
-                    error!("Error handling unsolicited response: {}", e);
+                        info!("Unsolicited notification {}: {:?}", context_info, content);
+                        if let Err(e) = Self::handle_unsolicited_response(&content).await {
+                            error!("Error handling unsolicited response: {}", e);
+                        }
+                        Ok(read_state) // Return the original state
+                    }
                 }
-                Ok(ModemReadState::Command(ctx))
-            },
-
-            // Handle normal unsolicited notifications when idle (not +CMT:).
-            (ModemReadState::Idle, ModemEvent::UnsolicitedNotification(content)) => {
-                if let Err(e) = Self::handle_unsolicited_response(&content).await {
-                    error!("Error handling unsolicited response: {}", e);
-                }
-                Ok(ModemReadState::Idle)
             },
 
             // Handle prompts only when expecting them.
@@ -148,19 +161,19 @@ impl ModemManager {
         }
     }
 
-    fn looks_like_sms_content(content: &str) -> bool {
+    fn looks_like_unsolicited_content(content: &str) -> bool {
         !content.starts_with("+") &&
             !content.starts_with("OK") &&
             !content.starts_with("ERROR") &&
             content.len() > 10
     }
 
-    // Enhanced classification that considers current state
     fn classify_line(content: &str, current_state: &ModemReadState) -> ModemEvent {
         let trimmed = content.trim();
 
-        // Always classify these as unsolicited regardless of state
+        // Always classify these as unsolicited regardless of state.
         if trimmed.starts_with("+CMT:") ||
+            trimmed.starts_with("+CDS:") ||
             trimmed.starts_with("+CMTI:") ||
             trimmed.starts_with("+RING") ||
             trimmed.starts_with("+CLIP:") ||
@@ -173,20 +186,20 @@ impl ModemManager {
             return ModemEvent::UnsolicitedNotification(trimmed.to_string());
         }
 
-        // Command completion indicators - only relevant when executing commands
+        // Command completion indicators - only relevant when executing commands.
         if matches!(current_state, ModemReadState::Command { .. }) {
             if trimmed == "OK" ||
                 trimmed == "ERROR" ||
                 trimmed.starts_with("+CME ERROR:") ||
                 trimmed.starts_with("+CMS ERROR:") ||
-                trimmed.starts_with("+CMGS:") ||  // SMS send confirmation
-                trimmed.starts_with("+CSQ:") ||   // Signal quality response
-                trimmed.starts_with("+CREG:") {   // Network registration response
+                trimmed.starts_with("+CMGS:") ||  // SMS send confirmation.
+                trimmed.starts_with("+CSQ:") ||   // Signal quality response.
+                trimmed.starts_with("+CREG:") {   // Network registration response.
                 return ModemEvent::CommandResponse(trimmed.to_string());
             }
         }
 
-        // Handle solicited responses that might look like unsolicited ones
+        // Handle solicited responses that might look like unsolicited ones.
         if matches!(current_state, ModemReadState::Command { .. }) &&
             (trimmed.starts_with("+CSQ:") || trimmed.starts_with("+CREG:")) {
             return ModemEvent::CommandResponse(trimmed.to_string());

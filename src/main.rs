@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use log::error;
+use log::{error, info};
 use crate::http::create_app;
 use crate::http::types::AppState;
 use crate::modem::types::ModemConfig;
@@ -19,12 +19,12 @@ async fn main() -> Result<()> {
         device: "/dev/ttyS0",
         baud: 115200,
     };
-    let (mut modem, mut sms_rx) = ModemManager::new(config);
+    let (mut modem, mut main_rx) = ModemManager::new(config);
 
-    // Spawn SMS receiver task.
+    // Spawn main receiver task.
     tokio::spawn(async move {
-        while let Some(message) = sms_rx.recv().await {
-            println!("📨 Received SMS: From {} - {}", message.from, message.content);
+        while let Some(message) = main_rx.recv().await {
+            info!("RECV: {:?}", message);
         }
     });
 
