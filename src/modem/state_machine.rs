@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::mem::take;
 use std::sync::Arc;
 use log::{debug, error, info, warn};
@@ -33,10 +32,10 @@ impl ModemStateMachine {
         self.state = ModemReadState::Idle;
     }
 
-    pub fn start_command(&mut self, sequence: u32) {
+    pub fn start_command(&mut self, sequence: u32, state: CommandState) {
         let ctx = CommandContext {
             sequence,
-            state: CommandState::WaitingForOk,
+            state,
             response_buffer: String::new()
         };
         self.state = ModemReadState::Command(ctx);

@@ -1,9 +1,10 @@
 use std::sync::Arc;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use log::{debug, info};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio_serial::SerialStream;
+use huawei_modem::pdu::DeliverPdu;
 use crate::modem::commands::CommandState;
 use crate::modem::types::{
     ModemRequest,
@@ -58,7 +59,7 @@ impl ModemEventHandlers {
         request: &ModemRequest
     ) -> Result<Option<CommandState>> {
         if let ModemRequest::SendSMS { len, pdu } = request {
-            debug!("Sending PDU: len = {}, pdu = {}", len, pdu);
+            debug!("Sending PDU: len = {}", len);
             {
                 let mut port_guard = port.lock().await;
                 port_guard.write_all(pdu.as_bytes()).await?;
@@ -77,11 +78,21 @@ impl ModemEventHandlers {
     ) -> Result<Option<ModemIncomingMessage>> {
         match message_type {
             UnsolicitedMessageType::IncomingSMS => {
+
+                // TODO: Validate the message send success from header.
+
+                // Decode SMS_DELIVER PDU into an IncomingSMS before sending through to main channel.
+                // It is handled here to make sure errors are thrown back up to the ModemManager thread.
+                let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
+                let deliver_pdu = DeliverPdu::try_from(&content_hex as &[u8]).map_err(|e| anyhow!(e))?;
+
                 Ok(Some(ModemIncomingMessage::IncomingSMS {
                     id: header.to_string(),
-                    to: "to".to_string(),
-                    content: content.to_string(),
-                    timestamp: 0,
+                    to: deliver_pdu.originating_address.to_string(),
+                    content: deliver_pdu.get_message_data()
+                        .decode_message()
+                        .map_err(|e| anyhow!(e))?.text,
+                    timestamp: 0, // TODO: Convert PDU SCTS back into a UNIX timestamp (u64)
                 }))
             },
             UnsolicitedMessageType::IncomingCall => {

@@ -1,4 +1,5 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
+use huawei_modem::pdu::DeliverPdu;
 use log::{error, info};
 use crate::http::create_app;
 use crate::http::types::AppState;
@@ -35,7 +36,7 @@ async fn main() -> Result<()> {
     };
 
     // Create API Application and listener.
-    let app = create_app(AppState { modem });
+    let app = create_app(AppState { sender: modem.get_sender()? });
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .expect("Failed to bind to address");

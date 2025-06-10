@@ -1,10 +1,13 @@
 use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
-use crate::modem::commands::{CommandContext, CommandState};
+use crate::modem::commands::CommandContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModemRequest {
-    SendSMS { len: u64, pdu: String },
+    SendSMS {
+        pdu: String,
+        len: usize
+    },
     GetNetworkStatus,
     GetSignalStrength,
     GetNetworkOperator,
@@ -14,7 +17,10 @@ pub enum ModemRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModemResponse {
-    SendResult { message_id: String, status: String },
+    SendResult {
+        message_id: String,
+        status: String
+    },
     NetworkStatus {
         operator: String
     },
@@ -34,7 +40,9 @@ pub enum ModemResponse {
         charge: u8,
         voltage: f32
     },
-    Error { message: String }
+    Error {
+        message: String
+    }
 }
 impl Display for ModemResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

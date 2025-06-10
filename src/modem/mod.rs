@@ -8,6 +8,7 @@ use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::{CommandTracker, next_command_sequence};
 use crate::modem::commands::OutgoingCommand;
 use crate::modem::handlers::ModemEventHandlers;
+use crate::modem::sender::ModemSender;
 use crate::modem::state_machine::ModemStateMachine;
 use crate::modem::types::{
     ModemConfig,
@@ -18,18 +19,17 @@ use crate::modem::types::{
 };
 
 pub mod types;
-mod handlers;
-mod state_machine;
 pub mod commands;
 mod buffer;
+pub mod sender;
+mod handlers;
+mod state_machine;
 
-#[derive(Clone)]
 pub struct ModemManager {
     config: ModemConfig,
     main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     command_tx: Option<mpsc::UnboundedSender<OutgoingCommand>>
 }
-
 impl ModemManager {
     pub fn new(config: ModemConfig) -> (Self, mpsc::UnboundedReceiver<ModemIncomingMessage>) {
         let (main_tx, main_rx) = mpsc::unbounded_channel();
@@ -99,32 +99,11 @@ impl ModemManager {
         Ok(handle)
     }
 
-    pub async fn send_command(&mut self, request: ModemRequest) -> Result<ModemResponse> {
-        if let Some(command_tx) = &self.command_tx {
-            let sequence = next_command_sequence();
-            let (tx, rx) = oneshot::channel();
-
-            let cmd = OutgoingCommand::new(sequence, request, tx);
-            debug!("Queuing command sequence {}: {:?}", sequence, cmd.request);
-
-            // Send to the modem task
-            command_tx.send(cmd)
-                .map_err(|_| anyhow!("Failed to queue command - modem task may be dead"))?;
-
-            // Wait for response with timeout
-            match tokio::time::timeout(tokio::time::Duration::from_secs(60), rx).await {
-                Ok(Ok(response)) => {
-                    debug!("Command sequence {} completed!", sequence);
-                    Ok(response)
-                }
-                Ok(Err(e)) => {
-                    error!("{:?}", e);
-                    Err(anyhow!("Command sequence {} response channel closed", sequence))
-                },
-                Err(_) => Err(anyhow!("Command sequence {} timed out waiting for response", sequence)),
-            }
+    pub fn get_sender(&mut self) -> Result<ModemSender> {
+        if let Some(command_tx) = self.command_tx.take() {
+            Ok(ModemSender::new(command_tx))
         } else {
-            Err(anyhow!("Cannot send commands via an unopened channel!"))
+            Err(anyhow!("Could not get ModemSender, command_tx channel has already been taken or the modem hasn't been started!"))
         }
     }
 
@@ -154,7 +133,7 @@ impl ModemManager {
                                 continue;
                             }
 
-                            state_machine.start_command(sequence);
+                            state_machine.start_command(sequence, state);
                             debug!("Started tracking command sequence {}", sequence);
                         }
                         Err(e) => {

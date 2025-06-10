@@ -1,18 +1,29 @@
 use axum::extract::State;
 use axum::Json;
 use crate::http::{get_modem_json_result, ModemJsonResult};
-use crate::http::types::{AppState, SendSmsRequest};
+use crate::http::types::{AppState, HttpResponse, SendSmsRequest};
 use crate::modem::types::ModemRequest;
 
 pub async fn send_sms(
-    State(state): State<AppState>,
+    State(mut state): State<AppState>,
     Json(payload): Json<SendSmsRequest>,
 ) -> ModemJsonResult {
-    let request = ModemRequest::SendSMS {
-        len: payload.len,
-        pdu: payload.pdu.to_string(),
+    let response = match state.sender.send_sms(payload.to, &*payload.content).await {
+        Ok(response) => response,
+        Err(e) => {
+            return Ok(Json(HttpResponse {
+                success: false,
+                data: None,
+                error: Some(e.to_string())
+            }))
+        }
     };
-    get_modem_json_result(state, request).await
+
+    Ok(Json(HttpResponse {
+        success: true,
+        data: Some(response),
+        error: None,
+    }))
 }
 
 macro_rules! modem_get_handler {

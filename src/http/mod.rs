@@ -19,7 +19,7 @@ async fn get_modem_json_result(
     mut state: AppState,
     request: ModemRequest
 ) -> ModemJsonResult {
-    let response = match state.modem.send_command(request).await {
+    let response = match state.sender.send_command(request).await {
         Ok(response) => response,
         Err(e) => {
             return Ok(Json(HttpResponse {

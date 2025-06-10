@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use crate::modem::ModemManager;
+use crate::modem::sender::ModemSender;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub modem: ModemManager
+    pub sender: ModemSender
 }
 
 #[derive(Serialize)]
@@ -15,6 +16,6 @@ pub struct HttpResponse<T> {
 
 #[derive(Deserialize)]
 pub struct SendSmsRequest {
-    pub len: u64,
-    pub pdu: String,
+    pub to: String,
+    pub content: String
 }
