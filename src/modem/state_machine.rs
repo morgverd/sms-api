@@ -15,6 +15,25 @@ use crate::modem::types::{
     UnsolicitedMessageType
 };
 
+fn with_validated_sequence<'cmd, F, R>(
+    sequence: u32,
+    command_tracker: &'cmd CommandTracker,
+    handler: F,
+) -> Result<R>
+where
+    F: FnOnce(&'cmd OutgoingCommand) -> R,
+{
+    if let Some(cmd) = command_tracker.get_active_command() {
+        if cmd.sequence == sequence {
+            Ok(handler(cmd))
+        } else {
+            bail!("Sequence mismatch: context has {} but tracker has {}!", sequence, cmd.sequence)
+        }
+    } else {
+        bail!("No active command in tracker for sequence {}", sequence)
+    }
+}
+
 #[derive(Default)]
 pub struct ModemStateMachine {
     state: ModemReadState
@@ -48,36 +67,20 @@ impl ModemStateMachine {
         port: &Arc<Mutex<SerialStream>>,
         command_tracker: &mut CommandTracker
     ) -> Result<()> {
-
+        
+        // FIXME: REMOVE THESE LOGS!
+        warn!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
         let modem_event = match line_event {
             LineEvent::Line(content) => self.classify_line(&content),
             LineEvent::Prompt(content) => ModemEvent::Prompt(content),
         };
-
+        warn!("ModemStateMachine transition_state: ModemEvent: {:?}, State: {:?}", modem_event, self.state);
+        
         let new_state = self.process_event(modem_event, main_tx, port, command_tracker).await?;
+        warn!("ModemStateMachine transition_state: {:?} -> {:?}", self.state, new_state);
         self.state = new_state;
 
         Ok(())
-    }
-
-    fn with_validated_command<'a, F, R>(
-        &'a mut self,
-        sequence: u32,
-        command_tracker: &'a CommandTracker,
-        handler: F,
-    ) -> Result<R>
-    where
-        F: FnOnce(&'a OutgoingCommand) -> R,
-    {
-        if let Some(cmd) = command_tracker.get_active_command() {
-            if cmd.sequence == sequence {
-                Ok(handler(cmd))
-            } else {
-                bail!("Sequence mismatch: context has {} but tracker has {}!", sequence, cmd.sequence)
-            }
-        } else {
-            bail!("No active command in tracker for sequence {}", sequence)
-        }
     }
 
     async fn process_event(
@@ -87,7 +90,7 @@ impl ModemStateMachine {
         port: &Arc<Mutex<SerialStream>>,
         command_tracker: &mut CommandTracker
     ) -> Result<ModemReadState> {
-
+        
         if let Some(expired_cmd) = command_tracker.force_timeout_active_command() {
             error!("Command sequence {} timed out: {:?}", expired_cmd.sequence, expired_cmd.request);
             expired_cmd.respond(ModemResponse::Error {
@@ -147,7 +150,7 @@ impl ModemStateMachine {
                 debug!("Processing prompt: {:?}", content);
                 ctx.response_buffer.push_str(&content);
 
-                let request_ref = self.with_validated_command(
+                let request_ref = with_validated_sequence(
                     ctx.sequence,
                     command_tracker,
                     |cmd| &cmd.request
@@ -179,7 +182,7 @@ impl ModemStateMachine {
 
                 if ctx.state.is_complete(&content) {
 
-                    let (request_ref, response_buffer_ref) = self.with_validated_command(
+                    let (request_ref, response_buffer_ref) = with_validated_sequence(
                         ctx.sequence,
                         command_tracker,
                         |cmd| (&cmd.request, &ctx.response_buffer)

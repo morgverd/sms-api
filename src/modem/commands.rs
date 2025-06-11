@@ -48,7 +48,6 @@ pub struct OutgoingCommand {
     response_tx: Arc<Mutex<Option<oneshot::Sender<ModemResponse>>>>,
     timestamp: Instant
 }
-
 impl OutgoingCommand {
     pub fn new(sequence: u32, request: ModemRequest, response_tx: oneshot::Sender<ModemResponse>) -> Self {
         Self {
@@ -74,18 +73,6 @@ impl OutgoingCommand {
         }
     }
 }
-
-impl Clone for OutgoingCommand {
-    fn clone(&self) -> Self {
-        Self {
-            sequence: self.sequence,
-            request: self.request.clone(),
-            response_tx: Arc::clone(&self.response_tx),
-            timestamp: self.timestamp,
-        }
-    }
-}
-
 
 #[derive(Debug)]
 pub struct CommandTracker {

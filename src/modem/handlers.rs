@@ -22,7 +22,6 @@ impl ModemEventHandlers {
     ) -> Result<CommandState> {
         match request {
             ModemRequest::SendSMS { len, .. } => {
-                debug!("Sending CMGS length {} for SendSMS!", len);
                 {
                     let mut port_guard = port.lock().await;
                     port_guard.write_all(format!("AT+CMGS={}\r\n", len).as_bytes()).await?;
@@ -79,20 +78,17 @@ impl ModemEventHandlers {
         match message_type {
             UnsolicitedMessageType::IncomingSMS => {
 
-                // TODO: Validate the message send success from header.
-
                 // Decode SMS_DELIVER PDU into an IncomingSMS before sending through to main channel.
                 // It is handled here to make sure errors are thrown back up to the ModemManager thread.
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let deliver_pdu = DeliverPdu::try_from(&content_hex as &[u8]).map_err(|e| anyhow!(e))?;
 
                 Ok(Some(ModemIncomingMessage::IncomingSMS {
-                    id: header.to_string(),
-                    to: deliver_pdu.originating_address.to_string(),
+                    phone_number: deliver_pdu.originating_address.to_string(),
                     content: deliver_pdu.get_message_data()
                         .decode_message()
                         .map_err(|e| anyhow!(e))?.text,
-                    timestamp: 0, // TODO: Convert PDU SCTS back into a UNIX timestamp (u64)
+                    timestamp: 0 // TODO: Convert PDU SCTS back into a UNIX timestamp (u64)
                 }))
             },
             UnsolicitedMessageType::IncomingCall => {
@@ -116,6 +112,24 @@ impl ModemEventHandlers {
         response: &String
     ) -> Result<ModemResponse> {
         info!("Command response: {:?} -> {:?}", request, response);
-        Ok(ModemResponse::Error { message: response.to_string() })
+        
+        match request {
+            ModemRequest::SendSMS { .. } => {
+                
+                // >+CMGS: 123\nOK\n
+                let reference_id: u8 = response
+                    .strip_prefix(">+CMGS: ")
+                    .and_then(|s| s.split('\n').next())
+                    .ok_or(anyhow!("Modem response is malformed"))?
+                    .trim()
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid CMGS message reference number"))?;
+
+                Ok(ModemResponse::SendResult { reference_id })
+            },
+            _ => {
+                Ok(ModemResponse::Error { message: response.to_string() })
+            }
+        }
     }
 }

@@ -1,19 +1,16 @@
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, oneshot};
+use tokio::sync::{mpsc, Mutex};
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use log::{debug, error};
 use crate::modem::buffer::LineBuffer;
-use crate::modem::commands::{CommandTracker, next_command_sequence};
-use crate::modem::commands::OutgoingCommand;
+use crate::modem::commands::{CommandTracker, OutgoingCommand};
 use crate::modem::handlers::ModemEventHandlers;
 use crate::modem::sender::ModemSender;
 use crate::modem::state_machine::ModemStateMachine;
 use crate::modem::types::{
     ModemConfig,
-    ModemReadState,
-    ModemRequest,
     ModemResponse,
     ModemIncomingMessage
 };

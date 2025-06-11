@@ -1,11 +1,9 @@
+use axum::http::StatusCode;
+use axum::Json;
 use serde::{Deserialize, Serialize};
-use crate::modem::ModemManager;
-use crate::modem::sender::ModemSender;
+use crate::modem::types::ModemResponse;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub sender: ModemSender
-}
+pub type ModemJsonResult = Result<Json<HttpResponse<ModemResponse>>, StatusCode>;
 
 #[derive(Serialize)]
 pub struct HttpResponse<T> {

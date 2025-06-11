@@ -18,8 +18,7 @@ pub enum ModemRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ModemResponse {
     SendResult {
-        message_id: String,
-        status: String
+        reference_id: u8
     },
     NetworkStatus {
         operator: String
@@ -47,8 +46,8 @@ pub enum ModemResponse {
 impl Display for ModemResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SendResult { message_id, status } =>
-                write!(f, "SMSResult: {} -> {}", message_id, status),
+            Self::SendResult { reference_id } =>
+                write!(f, "SMSResult: Ref {}", reference_id),
             Self::NetworkStatus { operator } =>
                 write!(f, "NetworkStatus: {}", operator),
             Self::SignalStrength { rssi, quality, .. } =>
@@ -117,18 +116,9 @@ pub enum ModemReadState {
 }
 
 #[derive(Debug)]
-pub enum SMSStatus {
-    Pending,
-    Sent,
-    Failed,
-    Received
-}
-
-#[derive(Debug)]
 pub enum ModemIncomingMessage {
     IncomingSMS {
-        id: String,
-        to: String,
+        phone_number: String,
         content: String,
         timestamp: u64
     },

@@ -17,3 +17,8 @@ tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors"] }
 huawei-modem = "0.2.2"
 hex = "0.4.3"
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite"] }
+rand = "0.9.1"
+base64 = "0.22.1"
+aes-gcm = "0.10.3"
+cipher = "0.4.4"

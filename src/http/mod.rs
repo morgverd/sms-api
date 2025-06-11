@@ -1,25 +1,23 @@
-pub mod types;
 mod routes;
+mod types;
 
 use axum::{
-    http::StatusCode,
     response::Json,
     routing::{get, post},
     Router,
 };
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
+use crate::AppState;
 use crate::http::routes::*;
-use crate::http::types::{HttpResponse, AppState};
-use crate::modem::types::{ModemRequest, ModemResponse};
-
-type ModemJsonResult = Result<Json<HttpResponse<ModemResponse>>, StatusCode>;
+use crate::http::types::{HttpResponse, ModemJsonResult};
+use crate::modem::types::ModemRequest;
 
 async fn get_modem_json_result(
-    mut state: AppState,
+    state: AppState,
     request: ModemRequest
 ) -> ModemJsonResult {
-    let response = match state.sender.send_command(request).await {
+    let response = match state.sms_manager.send_command(request).await {
         Ok(response) => response,
         Err(e) => {
             return Ok(Json(HttpResponse {
