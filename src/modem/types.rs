@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
-use crate::modem::commands::CommandContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModemRequest {
@@ -101,17 +100,6 @@ impl UnsolicitedMessageType {
         } else {
             None
         }
-    }
-}
-
-#[derive(Debug, Default)]
-pub enum ModemReadState {
-    #[default] Idle,
-    Command(CommandContext),
-    UnsolicitedMessage {
-        message_type: UnsolicitedMessageType,
-        header: String,
-        active_command: Option<CommandContext>
     }
 }
 

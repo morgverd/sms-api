@@ -5,7 +5,7 @@ use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use log::{debug, error};
 use crate::modem::buffer::LineBuffer;
-use crate::modem::commands::{CommandTracker, OutgoingCommand};
+use crate::modem::commands::OutgoingCommand;
 use crate::modem::handlers::ModemEventHandlers;
 use crate::modem::sender::ModemSender;
 use crate::modem::state_machine::ModemStateMachine;
@@ -111,33 +111,22 @@ impl ModemManager {
     ) -> Result<()> {
         let mut state_machine = ModemStateMachine::default();
         let mut line_buffer = LineBuffer::new();
-        let mut command_tracker = CommandTracker::new();
 
         loop {
             tokio::select! {
                 // Command sender: only pick up if idle.
-                Some(cmd) = command_rx.recv(), if state_machine.can_accept_command() && command_tracker.is_idle() => {
+                Some(mut cmd) = command_rx.recv(), if state_machine.can_accept_command() => {
                     debug!("Received new command sequence {}: {:?}", cmd.sequence, cmd.request);
-                    let cmd: OutgoingCommand = cmd;
 
                     match ModemEventHandlers::command_sender(&port, &cmd.request).await {
                         Ok(state) => {
-
-                            // Start the current command.
-                            let sequence = cmd.sequence;
-                            if let Err(e) = command_tracker.start_command(cmd) {
-                                error!("Failed to start command tracking: {}", e);
-                                continue;
-                            }
-
-                            state_machine.start_command(sequence, state);
-                            debug!("Started tracking command sequence {}", sequence);
+                            state_machine.start_command(cmd, state);
                         }
                         Err(e) => {
                             error!("Failed to send command sequence {}: {}", cmd.sequence, e);
                             cmd.respond(ModemResponse::Error {
                                 message: format!("Failed to send command: {}", e)
-                            }).await;
+                            }).await?
                         }
                     }
                 },
@@ -161,8 +150,7 @@ impl ModemManager {
                             match state_machine.transition_state(
                                 line_event,
                                 &main_tx,
-                                &port,
-                                &mut command_tracker
+                                &port
                             ).await {
                                 Ok(_) => { },
                                 Err(e) => {
@@ -171,16 +159,6 @@ impl ModemManager {
                                 }
                             }
                         }
-                    }
-                }
-
-                // Timeout handling for commands that take too long
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)), if state_machine.has_active_command() => {
-                    if let Some(expired_cmd) = command_tracker.force_timeout_active_command() {
-                        expired_cmd.respond(ModemResponse::Error {
-                            message: "Command timeout".to_string(),
-                        }).await;
-                        state_machine.reset_to_idle();
                     }
                 }
             }

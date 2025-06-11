@@ -5,69 +5,62 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_serial::SerialStream;
 use anyhow::{bail, Result};
 use crate::modem::buffer::LineEvent;
-use crate::modem::commands::{CommandContext, CommandState, CommandTracker, OutgoingCommand};
+use crate::modem::commands::{CommandContext, CommandState, OutgoingCommand};
 use crate::modem::handlers::ModemEventHandlers;
 use crate::modem::types::{
     ModemEvent,
-    ModemReadState,
     ModemResponse,
     ModemIncomingMessage,
     UnsolicitedMessageType
 };
 
-fn with_validated_sequence<'cmd, F, R>(
-    sequence: u32,
-    command_tracker: &'cmd CommandTracker,
-    handler: F,
-) -> Result<R>
-where
-    F: FnOnce(&'cmd OutgoingCommand) -> R,
-{
-    if let Some(cmd) = command_tracker.get_active_command() {
-        if cmd.sequence == sequence {
-            Ok(handler(cmd))
-        } else {
-            bail!("Sequence mismatch: context has {} but tracker has {}!", sequence, cmd.sequence)
-        }
-    } else {
-        bail!("No active command in tracker for sequence {}", sequence)
+#[derive(Debug, Default)]
+enum StateMachineState {
+    #[default] Idle,
+    Command {
+        context: CommandContext,
+        command: OutgoingCommand,
+    },
+    UnsolicitedMessage {
+        message_type: UnsolicitedMessageType,
+        header: String,
+        interrupted_command: Option<(CommandContext, OutgoingCommand)>,
     }
 }
 
 #[derive(Default)]
 pub struct ModemStateMachine {
-    state: ModemReadState
+    state: StateMachineState
 }
 impl ModemStateMachine {
     pub fn can_accept_command(&self) -> bool {
-        matches!(self.state, ModemReadState::Idle)
-    }
-
-    pub fn has_active_command(&self) -> bool {
-        matches!(self.state, ModemReadState::Command(_))
+        matches!(self.state, StateMachineState::Idle)
     }
 
     pub fn reset_to_idle(&mut self) {
-        self.state = ModemReadState::Idle;
+        self.state = StateMachineState::Idle;
     }
 
-    pub fn start_command(&mut self, sequence: u32, state: CommandState) {
+    pub fn start_command(&mut self, cmd: OutgoingCommand, command_state: CommandState) {
         let ctx = CommandContext {
-            sequence,
-            state,
+            sequence: cmd.sequence,
+            state: command_state,
             response_buffer: String::new()
         };
-        self.state = ModemReadState::Command(ctx);
+
+        self.state = StateMachineState::Command {
+            context: ctx,
+            command: cmd,
+        };
     }
 
     pub async fn transition_state(
         &mut self,
         line_event: LineEvent,
         main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
-        port: &Arc<Mutex<SerialStream>>,
-        command_tracker: &mut CommandTracker
+        port: &Arc<Mutex<SerialStream>>
     ) -> Result<()> {
-        
+
         // FIXME: REMOVE THESE LOGS!
         warn!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
         let modem_event = match line_event {
@@ -75,8 +68,8 @@ impl ModemStateMachine {
             LineEvent::Prompt(content) => ModemEvent::Prompt(content),
         };
         warn!("ModemStateMachine transition_state: ModemEvent: {:?}, State: {:?}", modem_event, self.state);
-        
-        let new_state = self.process_event(modem_event, main_tx, port, command_tracker).await?;
+
+        let new_state = self.process_event(port, modem_event, main_tx).await?;
         warn!("ModemStateMachine transition_state: {:?} -> {:?}", self.state, new_state);
         self.state = new_state;
 
@@ -85,23 +78,15 @@ impl ModemStateMachine {
 
     async fn process_event(
         &mut self,
-        modem_event: ModemEvent,
-        main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
         port: &Arc<Mutex<SerialStream>>,
-        command_tracker: &mut CommandTracker
-    ) -> Result<ModemReadState> {
-        
-        if let Some(expired_cmd) = command_tracker.force_timeout_active_command() {
-            error!("Command sequence {} timed out: {:?}", expired_cmd.sequence, expired_cmd.request);
-            expired_cmd.respond(ModemResponse::Error {
-                message: format!("Command sequence {} timed out", expired_cmd.sequence)
-            }).await;
-        }
+        modem_event: ModemEvent,
+        main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>
+    ) -> Result<StateMachineState> {
 
         match (take(&mut self.state), modem_event) {
 
             // Receive data for an unsolicited message, completing the state and returning
-            (ModemReadState::UnsolicitedMessage { message_type, header, active_command }, ModemEvent::Data(content)) => {
+            (StateMachineState::UnsolicitedMessage { message_type, header, interrupted_command }, ModemEvent::Data(content)) => {
 
                 // Handle the unsolicited message data, sending the parsed ModemReceivedMessage back to main_tx.
                 match ModemEventHandlers::handle_unsolicited_message(&message_type, &header, &content).await {
@@ -112,112 +97,118 @@ impl ModemStateMachine {
                 }
 
                 // Restore previous command context if present.
-                Ok(match active_command {
-                    Some(ctx) => ModemReadState::Command(ctx),
-                    None => ModemReadState::Idle,
+                Ok(match interrupted_command {
+                    Some((context, command)) => StateMachineState::Command { context, command },
+                    None => StateMachineState::Idle,
                 })
-            },
-
-            // Handle unsolicited messages when in command state - DON'T change command state.
-            // TODO: Possibly queue this to be read again when available?
-            (ModemReadState::Command(ctx), ModemEvent::Data(content))
-            if Self::looks_like_unsolicited_content(&content) => {
-                error!("Received unsolicited content during command execution: {:?}", content);
-                Ok(ModemReadState::Command(ctx))
             },
 
             // Handle the start of an unsolicited modem event, during command or idle states.
-            (read_state @ (ModemReadState::Command(_) | ModemReadState::Idle), ModemEvent::UnsolicitedMessage { message_type, header }) => {
-                let (active_command, context_info) = match read_state {
-                    ModemReadState::Command(ctx) => {
-                        let sequence = ctx.sequence;
-                        (Some(ctx), format!("during command {}", sequence))
-                    },
-                    ModemReadState::Idle => (None, "while idle".to_string()),
-                    _ => unreachable!()
-                };
-
-                info!("Unsolicited message header received {}: {:?}", context_info, header);
-                Ok(ModemReadState::UnsolicitedMessage {
+            (StateMachineState::Command { context, command }, ModemEvent::UnsolicitedMessage { message_type, header }) => {
+                let sequence = context.sequence;
+                info!("Unsolicited message header received during command {}: {:?}", sequence, header);
+                Ok(StateMachineState::UnsolicitedMessage {
                     message_type,
                     header,
-                    active_command
+                    interrupted_command: Some((context, command)),
                 })
             },
 
+            (StateMachineState::Idle, ModemEvent::UnsolicitedMessage { message_type, header }) => {
+                info!("Unsolicited message header received while idle: {:?}", header);
+                Ok(StateMachineState::UnsolicitedMessage {
+                    message_type,
+                    header,
+                    interrupted_command: None,
+                })
+            },
+
+            // Process command responses.
+            (StateMachineState::Command { context, command }, event) => {
+                self.process_command(port, context, command, event).await
+            }
+
+            // Ignore unexpected events when idle.
+            (StateMachineState::Idle, ModemEvent::Prompt(content)) => {
+                warn!("Received unexpected prompt when idle: {:?}", content);
+                Ok(StateMachineState::Idle)
+            }
+            (StateMachineState::Idle, ModemEvent::CommandResponse(content) | ModemEvent::Data(content)) => {
+                warn!("Received unexpected response when idle: {:?}", content);
+                Ok(StateMachineState::Idle)
+            },
+            (read_state, modem_event) => {
+                error!("Got to an invalid state! Read: {:?}, Event: {:?}", read_state, modem_event);
+                bail!("Invalid state transition: {:?} with event {:?}", read_state, modem_event);
+            }
+        }
+    }
+
+    async fn process_command(
+        &mut self,
+        port: &Arc<Mutex<SerialStream>>,
+        mut context: CommandContext,
+        mut command: OutgoingCommand,
+        event: ModemEvent
+    ) -> Result<StateMachineState> {
+        match event {
+
             // Handle prompts only when expecting them.
-            (ModemReadState::Command(mut ctx), ModemEvent::Prompt(content)) => {
+            ModemEvent::Prompt(content) => {
                 debug!("Processing prompt: {:?}", content);
-                ctx.response_buffer.push_str(&content);
+                context.response_buffer.push_str(&content);
 
-                let request_ref = with_validated_sequence(
-                    ctx.sequence,
-                    command_tracker,
-                    |cmd| &cmd.request
-                )?;
-
-                match ModemEventHandlers::prompt_handler(&port, request_ref).await {
+                match ModemEventHandlers::prompt_handler(&port, &command.request).await {
                     Ok(Some(new_state)) => {
-                        ctx.state = new_state;
-                        Ok(ModemReadState::Command(ctx))
+                        context.state = new_state;
+                        Ok(StateMachineState::Command { context, command })
                     }
-                    Ok(None) => Ok(ModemReadState::Idle),
+                    Ok(None) => {
+                        // Prompt handler indicates command is complete
+                        let response = ModemResponse::Error {
+                            message: "Command completed during prompt handling".to_string()
+                        };
+                        command.respond(response).await?;
+                        Ok(StateMachineState::Idle)
+                    },
                     Err(e) => {
-
-                        // If prompt handling fails, send an error back to the command tracker to close it.
+                        // If prompt handling fails, send an error back to complete the command
                         error!("Prompt handler error: {e}");
-                        command_tracker.complete_active_command(ModemResponse::Error {
+                        let response = ModemResponse::Error {
                             message: format!("Prompt handler error: {e}")
-                        }).await?;
-                        Ok(ModemReadState::Idle)
+                        };
+                        command.respond(response).await?;
+                        Ok(StateMachineState::Idle)
                     }
                 }
             },
 
             // Handle command responses and other data when in command state.
-            (ModemReadState::Command(mut ctx), ModemEvent::CommandResponse(content) | ModemEvent::Data(content)) => {
+            ModemEvent::CommandResponse(content) | ModemEvent::Data(content) => {
                 debug!("Processing command response/data: {:?}", content);
-                ctx.response_buffer.push_str(&content);
-                ctx.response_buffer.push('\n');
+                context.response_buffer.push_str(&content);
+                context.response_buffer.push('\n');
 
-                if ctx.state.is_complete(&content) {
-
-                    let (request_ref, response_buffer_ref) = with_validated_sequence(
-                        ctx.sequence,
-                        command_tracker,
-                        |cmd| (&cmd.request, &ctx.response_buffer)
-                    )?;
-
-                    match ModemEventHandlers::command_responder(request_ref, response_buffer_ref).await {
+                if context.state.is_complete(&content) {
+                    match ModemEventHandlers::command_responder(&command.request, &context.response_buffer).await {
                         Ok(response) => {
-                            command_tracker.complete_active_command(response).await?;
-                            Ok(ModemReadState::Idle)
+                            command.respond(response).await?;
+                            Ok(StateMachineState::Idle)
                         },
                         Err(e) => {
                             let error_response = ModemResponse::Error {
                                 message: e.to_string()
                             };
-
-                            command_tracker.complete_active_command(error_response).await?;
-                            Ok(ModemReadState::Idle)
+                            command.respond(error_response).await?;
+                            Ok(StateMachineState::Idle)
                         }
                     }
                 } else {
-                    Ok(ModemReadState::Command(ctx))
+                    Ok(StateMachineState::Command { context, command })
                 }
             },
-
-            // Ignore unexpected events when idle.
-            (ModemReadState::Idle, ModemEvent::Prompt(content)) => {
-                warn!("Received unexpected prompt when idle: {:?}", content);
-                Ok(ModemReadState::Idle)
-            }
-            (ModemReadState::Idle, ModemEvent::CommandResponse(content) | ModemEvent::Data(content)) => {
-                warn!("Received unexpected response when idle: {:?}", content);
-                Ok(ModemReadState::Idle)
-            },
-            (read_state, modem_event) => {
-                unreachable!("Got to an invalid state! Read: {:?}, Event: {:?}", read_state, modem_event);
+            ModemEvent::UnsolicitedMessage { .. } => {
+                unreachable!("Unsolicited messages during a command should have already been handled!")
             }
         }
     }
@@ -231,7 +222,7 @@ impl ModemStateMachine {
         }
 
         // Command completion indicators - only relevant when executing commands.
-        if matches!(self.state, ModemReadState::Command { .. }) {
+        if matches!(self.state, StateMachineState::Command { .. }) {
             if trimmed == "OK" ||
                 trimmed == "ERROR" ||
                 trimmed.starts_with("+CME ERROR:") ||
@@ -244,18 +235,11 @@ impl ModemStateMachine {
         }
 
         // Handle solicited responses that might look like unsolicited ones.
-        if matches!(self.state, ModemReadState::Command { .. }) &&
+        if matches!(self.state, StateMachineState::Command { .. }) &&
             (trimmed.starts_with("+CSQ:") || trimmed.starts_with("+CREG:")) {
             return ModemEvent::CommandResponse(trimmed.to_string());
         }
 
         ModemEvent::Data(trimmed.to_string())
-    }
-
-    fn looks_like_unsolicited_content(content: &str) -> bool {
-        !content.starts_with("+") &&
-            !content.starts_with("OK") &&
-            !content.starts_with("ERROR") &&
-            content.len() > 10
     }
 }
