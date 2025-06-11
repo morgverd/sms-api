@@ -1,9 +1,11 @@
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use log::{debug, error};
+use tokio::time::interval;
 use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::OutgoingCommand;
 use crate::modem::handlers::ModemEventHandlers;
@@ -111,10 +113,12 @@ impl ModemManager {
     ) -> Result<()> {
         let mut state_machine = ModemStateMachine::default();
         let mut line_buffer = LineBuffer::new();
+        
+        let mut read_interval = interval(Duration::from_millis(10));
+        let mut timeout_interval = interval(Duration::from_secs(1));
 
         loop {
             tokio::select! {
-                // Command sender: only pick up if idle.
                 Some(mut cmd) = command_rx.recv(), if state_machine.can_accept_command() => {
                     debug!("Received new command sequence {}: {:?}", cmd.sequence, cmd.request);
 
@@ -132,7 +136,7 @@ impl ModemManager {
                 },
 
                 // Response reader.
-                _ = tokio::time::sleep(tokio::time::Duration::from_millis(50)) => {
+                _ = read_interval.tick() => {
                     let new_data = {
                         let mut port_guard = port.lock().await;
                         let mut buf = [0u8; 1024];
@@ -159,6 +163,14 @@ impl ModemManager {
                                 }
                             }
                         }
+                    }
+                },
+                
+                // Command timeout.
+                _ = timeout_interval.tick() => {
+                    debug!("handle_command_timeout"); // FIXME: remove this.
+                    if let Err(e) = state_machine.handle_command_timeout().await {
+                        error!("Error while handling command timeout: {:?}", e);
                     }
                 }
             }

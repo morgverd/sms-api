@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 use anyhow::{anyhow, bail, Result};
+use log::{debug, error};
 use crate::modem::types::{ModemRequest, ModemResponse};
 
 static COMMAND_SEQUENCE: AtomicU32 = AtomicU32::new(1);
@@ -56,17 +57,23 @@ impl OutgoingCommand {
         }
     }
 
-    pub fn is_expired(&self, timeout_secs: u64) -> bool {
-        self.timestamp.elapsed().as_secs() > timeout_secs
-    }
-
     pub async fn respond(&mut self, response: ModemResponse) -> Result<()> {
+        debug!("Attempting to respond to command #{} with: {:?}", self.sequence, response);
+
         if let Some(tx) = self.response_tx.take() {
+            debug!("Sending response via oneshot channel for command #{}", self.sequence);
             match tx.send(response) {
-                Ok(_) => Ok(()),
-                Err(response) => Err(anyhow!("Failed to respond to command #{} with: {:?}", self.sequence, response))
+                Ok(_) => {
+                    debug!("Successfully sent response for command #{}", self.sequence);
+                    Ok(())
+                },
+                Err(response) => {
+                    error!("Failed to send response for command #{} - receiver likely dropped. Response was: {:?}", self.sequence, response);
+                    Err(anyhow!("Failed to respond to command #{} with: {:?}", self.sequence, response))
+                }
             }
         } else {
+            error!("Attempted to respond to command #{} but response channel was already used", self.sequence);
             bail!("Attempted to respond to command #{} but response channel was already used", self.sequence);
         }
     }

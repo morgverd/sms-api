@@ -18,24 +18,29 @@ impl ModemSender {
         let sequence = next_command_sequence();
         let (tx, rx) = oneshot::channel();
 
-        let cmd = OutgoingCommand::new(sequence, request, tx);
-        debug!("Queuing command sequence {}: {:?}", sequence, cmd.request);
+        let cmd = OutgoingCommand::new(sequence, request.clone(), tx);
+        debug!("Queuing command sequence {}: {:?}", sequence, request);
 
         // Send to the modem task.
         self.command_tx.send(cmd)
             .map_err(|_| anyhow!("Failed to queue command - modem task may be dead"))?;
 
+        debug!("Command sequence {} sent to modem task, waiting for response...", sequence);
+
         // Wait for response with timeout.
         match tokio::time::timeout(tokio::time::Duration::from_secs(60), rx).await {
             Ok(Ok(response)) => {
-                debug!("Command sequence {} completed!", sequence);
+                debug!("Command sequence {} completed with response: {:?}", sequence, response);
                 Ok(response)
             }
             Ok(Err(e)) => {
-                error!("{:?}", e);
+                error!("Command sequence {} response channel error: {:?}", sequence, e);
                 Err(anyhow!("Command sequence {} response channel closed", sequence))
             },
-            Err(_) => Err(anyhow!("Command sequence {} timed out waiting for response", sequence)),
+            Err(_) => {
+                error!("Command sequence {} timed out waiting for response after 60 seconds", sequence);
+                Err(anyhow!("Command sequence {} timed out waiting for response", sequence))
+            }
         }
     }
 }

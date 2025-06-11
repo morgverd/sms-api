@@ -1,5 +1,6 @@
 use std::mem::take;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use log::{debug, error, info, warn};
 use tokio::sync::{mpsc, Mutex};
 use tokio_serial::SerialStream;
@@ -14,17 +15,42 @@ use crate::modem::types::{
     UnsolicitedMessageType
 };
 
+const COMMAND_TIMEOUT_DURATION: Duration = Duration::from_secs(30);
+
+#[derive(Debug)]
+struct CommandExecution {
+    context: CommandContext,
+    command: OutgoingCommand,
+    timeout_at: Instant,
+}
+impl CommandExecution {
+    fn new(command: OutgoingCommand, command_state: CommandState) -> Self {
+        let context = CommandContext {
+            sequence: command.sequence,
+            state: command_state,
+            response_buffer: String::new()
+        };
+
+        Self {
+            context,
+            command,
+            timeout_at: Instant::now() + COMMAND_TIMEOUT_DURATION,
+        }
+    }
+
+    fn is_timed_out(&self) -> bool {
+        Instant::now() >= self.timeout_at
+    }
+}
+
 #[derive(Debug, Default)]
 enum StateMachineState {
     #[default] Idle,
-    Command {
-        context: CommandContext,
-        command: OutgoingCommand,
-    },
+    Command(CommandExecution),
     UnsolicitedMessage {
         message_type: UnsolicitedMessageType,
         header: String,
-        interrupted_command: Option<(CommandContext, OutgoingCommand)>,
+        interrupted_command: Option<CommandExecution>,
     }
 }
 
@@ -42,16 +68,35 @@ impl ModemStateMachine {
     }
 
     pub fn start_command(&mut self, cmd: OutgoingCommand, command_state: CommandState) {
-        let ctx = CommandContext {
-            sequence: cmd.sequence,
-            state: command_state,
-            response_buffer: String::new()
+        warn!("Starting command: {:?} with state -> {:?}", cmd, command_state);
+        let execution = CommandExecution::new(cmd, command_state);
+        self.state = StateMachineState::Command(execution);
+    }
+
+    pub async fn handle_command_timeout(&mut self) -> Result<()> {
+        let execution = match &self.state {
+            StateMachineState::Command(execution) => execution,
+            _ => return Ok(())
+        };
+        if !execution.is_timed_out() {
+            return Ok(());
+        }
+        
+        // Remove the CommandExecution from state to get OutgoingCommand.
+        let mut command = match take(&mut self.state) {
+            StateMachineState::Command(execution) => {
+                self.state = StateMachineState::Idle;
+                execution.command
+            }
+            _ => unreachable!(),
         };
 
-        self.state = StateMachineState::Command {
-            context: ctx,
-            command: cmd,
-        };
+        let timeout_secs = COMMAND_TIMEOUT_DURATION.as_secs();
+        warn!("Command {} timed out after {} seconds", command.sequence, timeout_secs);
+
+        command.respond(ModemResponse::Error {
+            message: format!("Command timed out after {} seconds", timeout_secs)
+        }).await
     }
 
     pub async fn transition_state(
@@ -60,7 +105,7 @@ impl ModemStateMachine {
         main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
         port: &Arc<Mutex<SerialStream>>
     ) -> Result<()> {
-
+        
         // FIXME: REMOVE THESE LOGS!
         warn!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
         let modem_event = match line_event {
@@ -98,22 +143,21 @@ impl ModemStateMachine {
 
                 // Restore previous command context if present.
                 Ok(match interrupted_command {
-                    Some((context, command)) => StateMachineState::Command { context, command },
+                    Some(execution) => StateMachineState::Command(execution),
                     None => StateMachineState::Idle,
                 })
             },
 
             // Handle the start of an unsolicited modem event, during command or idle states.
-            (StateMachineState::Command { context, command }, ModemEvent::UnsolicitedMessage { message_type, header }) => {
-                let sequence = context.sequence;
+            (StateMachineState::Command(execution), ModemEvent::UnsolicitedMessage { message_type, header }) => {
+                let sequence = execution.context.sequence;
                 info!("Unsolicited message header received during command {}: {:?}", sequence, header);
                 Ok(StateMachineState::UnsolicitedMessage {
                     message_type,
                     header,
-                    interrupted_command: Some((context, command)),
+                    interrupted_command: Some(execution),
                 })
             },
-
             (StateMachineState::Idle, ModemEvent::UnsolicitedMessage { message_type, header }) => {
                 info!("Unsolicited message header received while idle: {:?}", header);
                 Ok(StateMachineState::UnsolicitedMessage {
@@ -124,8 +168,8 @@ impl ModemStateMachine {
             },
 
             // Process command responses.
-            (StateMachineState::Command { context, command }, event) => {
-                self.process_command(port, context, command, event).await
+            (StateMachineState::Command(execution), event) => {
+                self.process_command(port, execution, event).await
             }
 
             // Ignore unexpected events when idle.
@@ -147,8 +191,7 @@ impl ModemStateMachine {
     async fn process_command(
         &mut self,
         port: &Arc<Mutex<SerialStream>>,
-        mut context: CommandContext,
-        mut command: OutgoingCommand,
+        mut execution: CommandExecution,
         event: ModemEvent
     ) -> Result<StateMachineState> {
         match event {
@@ -156,19 +199,19 @@ impl ModemStateMachine {
             // Handle prompts only when expecting them.
             ModemEvent::Prompt(content) => {
                 debug!("Processing prompt: {:?}", content);
-                context.response_buffer.push_str(&content);
+                execution.context.response_buffer.push_str(&content);
 
-                match ModemEventHandlers::prompt_handler(&port, &command.request).await {
+                match ModemEventHandlers::prompt_handler(&port, &execution.command.request).await {
                     Ok(Some(new_state)) => {
-                        context.state = new_state;
-                        Ok(StateMachineState::Command { context, command })
+                        execution.context.state = new_state;
+                        Ok(StateMachineState::Command(execution))
                     }
                     Ok(None) => {
                         // Prompt handler indicates command is complete
                         let response = ModemResponse::Error {
                             message: "Command completed during prompt handling".to_string()
                         };
-                        command.respond(response).await?;
+                        execution.command.respond(response).await?;
                         Ok(StateMachineState::Idle)
                     },
                     Err(e) => {
@@ -177,7 +220,7 @@ impl ModemStateMachine {
                         let response = ModemResponse::Error {
                             message: format!("Prompt handler error: {e}")
                         };
-                        command.respond(response).await?;
+                        execution.command.respond(response).await?;
                         Ok(StateMachineState::Idle)
                     }
                 }
@@ -186,25 +229,25 @@ impl ModemStateMachine {
             // Handle command responses and other data when in command state.
             ModemEvent::CommandResponse(content) | ModemEvent::Data(content) => {
                 debug!("Processing command response/data: {:?}", content);
-                context.response_buffer.push_str(&content);
-                context.response_buffer.push('\n');
+                execution.context.response_buffer.push_str(&content);
+                execution.context.response_buffer.push('\n');
 
-                if context.state.is_complete(&content) {
-                    match ModemEventHandlers::command_responder(&command.request, &context.response_buffer).await {
+                if execution.context.state.is_complete(&content) {
+                    match ModemEventHandlers::command_responder(&execution.command.request, &execution.context.response_buffer).await {
                         Ok(response) => {
-                            command.respond(response).await?;
+                            execution.command.respond(response).await?;
                             Ok(StateMachineState::Idle)
                         },
                         Err(e) => {
                             let error_response = ModemResponse::Error {
                                 message: e.to_string()
                             };
-                            command.respond(error_response).await?;
+                            execution.command.respond(error_response).await?;
                             Ok(StateMachineState::Idle)
                         }
                     }
                 } else {
-                    Ok(StateMachineState::Command { context, command })
+                    Ok(StateMachineState::Command(execution))
                 }
             },
             ModemEvent::UnsolicitedMessage { .. } => {
@@ -222,7 +265,7 @@ impl ModemStateMachine {
         }
 
         // Command completion indicators - only relevant when executing commands.
-        if matches!(self.state, StateMachineState::Command { .. }) {
+        if matches!(self.state, StateMachineState::Command(_)) {
             if trimmed == "OK" ||
                 trimmed == "ERROR" ||
                 trimmed.starts_with("+CME ERROR:") ||
@@ -235,7 +278,7 @@ impl ModemStateMachine {
         }
 
         // Handle solicited responses that might look like unsolicited ones.
-        if matches!(self.state, StateMachineState::Command { .. }) &&
+        if matches!(self.state, StateMachineState::Command(_)) &&
             (trimmed.starts_with("+CSQ:") || trimmed.starts_with("+CREG:")) {
             return ModemEvent::CommandResponse(trimmed.to_string());
         }
