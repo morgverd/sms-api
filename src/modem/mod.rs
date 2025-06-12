@@ -27,7 +27,7 @@ mod state_machine;
 pub struct ModemManager {
     config: ModemConfig,
     main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
-    command_tx: Option<mpsc::UnboundedSender<OutgoingCommand>>
+    command_tx: Option<mpsc::Sender<OutgoingCommand>>
 }
 impl ModemManager {
     pub fn new(config: ModemConfig) -> (Self, mpsc::UnboundedReceiver<ModemIncomingMessage>) {
@@ -43,7 +43,7 @@ impl ModemManager {
     }
 
     pub async fn start(&mut self) -> Result<tokio::task::JoinHandle<()>> {
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (command_tx, command_rx) = mpsc::channel(self.config.cmd_channel_buffer_size);
         self.command_tx = Some(command_tx);
 
         let mut port = Arc::new(Mutex::new(
@@ -108,7 +108,7 @@ impl ModemManager {
 
     async fn modem_task(
         port: Arc<Mutex<SerialStream>>,
-        mut command_rx: mpsc::UnboundedReceiver<OutgoingCommand>,
+        mut command_rx: mpsc::Receiver<OutgoingCommand>,
         main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     ) -> Result<()> {
         let mut state_machine = ModemStateMachine::default();
@@ -168,7 +168,6 @@ impl ModemManager {
                 
                 // Command timeout.
                 _ = timeout_interval.tick() => {
-                    debug!("handle_command_timeout"); // FIXME: remove this.
                     if let Err(e) = state_machine.handle_command_timeout().await {
                         error!("Error while handling command timeout: {:?}", e);
                     }

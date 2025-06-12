@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +13,14 @@ pub enum ModemRequest {
     GetNetworkOperator,
     GetServiceProvider,
     GetBatteryLevel
+}
+impl ModemRequest {
+    pub fn get_timeout(&self) -> Duration {
+        match self {
+            ModemRequest::SendSMS { .. } => Duration::from_secs(20),
+            _ => Duration::from_secs(5)
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,19 +54,19 @@ pub enum ModemResponse {
 impl Display for ModemResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SendResult { reference_id } =>
+            ModemResponse::SendResult { reference_id } =>
                 write!(f, "SMSResult: Ref {}", reference_id),
-            Self::NetworkStatus { operator } =>
+            ModemResponse::NetworkStatus { operator } =>
                 write!(f, "NetworkStatus: {}", operator),
-            Self::SignalStrength { rssi, quality, .. } =>
+            ModemResponse::SignalStrength { rssi, quality, .. } =>
                 write!(f, "SignalStrength: {} dBm ({})", rssi, quality),
-            Self::NetworkOperator { operator, .. } =>
+            ModemResponse::NetworkOperator { operator, .. } =>
                 write!(f, "NetworkOperator: {}", operator),
-            Self::ServiceProvider { operator, .. } =>
+            ModemResponse::ServiceProvider { operator, .. } =>
                 write!(f, "ServiceProvider: {}", operator),
-            Self::BatteryLevel { status, charge, voltage } =>
+            ModemResponse::BatteryLevel { status, charge, voltage } =>
                 write!(f, "BatteryLevel. Status: {}, Charge: {}, Voltage: {}", status, charge, voltage),
-            Self::Error { message } =>
+            ModemResponse::Error { message } =>
                 write!(f, "Error: {}", message)
         }
     }
@@ -77,7 +86,10 @@ pub enum ModemEvent {
 #[derive(Debug, Clone)]
 pub struct ModemConfig {
     pub device: &'static str,
-    pub baud: u32
+    pub baud: u32,
+    
+    /// The size of Command bounded mpsc sender, should be low. eg: 32
+    pub cmd_channel_buffer_size: usize
 }
 
 #[derive(Debug)]
@@ -90,13 +102,13 @@ pub enum UnsolicitedMessageType {
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
         if header.starts_with("+CMT") {
-            Some(Self::IncomingSMS)
+            Some(UnsolicitedMessageType::IncomingSMS)
         } else if header.starts_with("+RING") {
-            Some(Self::IncomingCall)
+            Some(UnsolicitedMessageType::IncomingCall)
         } else if header.starts_with("+CDS") {
-            Some(Self::DeliveryReport)
+            Some(UnsolicitedMessageType::DeliveryReport)
         } else if header.starts_with("+CGREG:") {
-            Some(Self::NetworkStatusChange)
+            Some(UnsolicitedMessageType::NetworkStatusChange)
         } else {
             None
         }

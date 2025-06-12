@@ -44,10 +44,9 @@ impl ModemEventHandlers {
                 let mut port_guard = port.lock().await;
                 port_guard.write_all(b"AT+CSPN?\r\n").await?;
             },
-            ModemRequest::GetBatteryLevel => {
-                // let mut port_guard = port.lock().await;
-                // port_guard.write_all(b"AT+CBC\r\n").await?;
-                debug!("not doing shit");
+            ModemRequest::GetBatteryLevel => { 
+                let mut port_guard = port.lock().await;
+                port_guard.write_all(b"AT+CBC\r\n").await?;
             }
         }
 

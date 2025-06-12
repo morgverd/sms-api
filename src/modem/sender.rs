@@ -1,16 +1,19 @@
-use anyhow::anyhow;
+use std::time::Duration;
+use anyhow::{anyhow, bail};
 use log::{debug, error};
 use tokio::sync::{oneshot, mpsc};
 use anyhow::Result;
 use crate::modem::commands::{next_command_sequence, OutgoingCommand};
 use crate::modem::types::{ModemRequest, ModemResponse};
 
+const SEND_TIMEOUT: Duration = Duration::from_secs(90);
+
 #[derive(Clone)]
 pub struct ModemSender {
-    command_tx: mpsc::UnboundedSender<OutgoingCommand>
+    command_tx: mpsc::Sender<OutgoingCommand>
 }
 impl ModemSender {
-    pub fn new(command_tx: mpsc::UnboundedSender<OutgoingCommand>) -> Self {
+    pub fn new(command_tx: mpsc::Sender<OutgoingCommand>) -> Self {
         Self { command_tx }
     }
 
@@ -20,15 +23,16 @@ impl ModemSender {
 
         let cmd = OutgoingCommand::new(sequence, request.clone(), tx);
         debug!("Queuing command sequence {}: {:?}", sequence, request);
-
-        // Send to the modem task.
-        self.command_tx.send(cmd)
-            .map_err(|_| anyhow!("Failed to queue command - modem task may be dead"))?;
-
-        debug!("Command sequence {} sent to modem task, waiting for response...", sequence);
-
+        
+        // Try to queue without blocking.
+        match self.command_tx.try_send(cmd) {
+            Ok(_) => debug!("Command sequence {} successfully queued", sequence),
+            Err(mpsc::error::TrySendError::Full(_)) => bail!("Command queue is full! The modem may be overwhelmed."),
+            Err(mpsc::error::TrySendError::Closed(_)) => bail!("Command queue is closed.")
+        }
+        
         // Wait for response with timeout.
-        match tokio::time::timeout(tokio::time::Duration::from_secs(60), rx).await {
+        match tokio::time::timeout(SEND_TIMEOUT, rx).await {
             Ok(Ok(response)) => {
                 debug!("Command sequence {} completed with response: {:?}", sequence, response);
                 Ok(response)
@@ -38,7 +42,7 @@ impl ModemSender {
                 Err(anyhow!("Command sequence {} response channel closed", sequence))
             },
             Err(_) => {
-                error!("Command sequence {} timed out waiting for response after 60 seconds", sequence);
+                error!("Command sequence {} timed out waiting for response", sequence);
                 Err(anyhow!("Command sequence {} timed out waiting for response", sequence))
             }
         }

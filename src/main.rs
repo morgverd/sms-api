@@ -28,6 +28,7 @@ impl AppState {
         let (mut modem, main_rx) = ModemManager::new(ModemConfig {
             device: "/dev/ttyS0",
             baud: 115200,
+            cmd_channel_buffer_size: 3
         });
 
         // Start Modem task and get handle to join with HTTP server.

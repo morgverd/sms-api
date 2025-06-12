@@ -1,6 +1,6 @@
 use std::mem::take;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use log::{debug, error, info, warn};
 use tokio::sync::{mpsc, Mutex};
 use tokio_serial::SerialStream;
@@ -15,16 +15,15 @@ use crate::modem::types::{
     UnsolicitedMessageType
 };
 
-const COMMAND_TIMEOUT_DURATION: Duration = Duration::from_secs(30);
-
 #[derive(Debug)]
 struct CommandExecution {
     context: CommandContext,
     command: OutgoingCommand,
-    timeout_at: Instant,
+    timeout_at: Instant
 }
 impl CommandExecution {
     fn new(command: OutgoingCommand, command_state: CommandState) -> Self {
+        let timeout = command.request.get_timeout();
         let context = CommandContext {
             sequence: command.sequence,
             state: command_state,
@@ -34,7 +33,7 @@ impl CommandExecution {
         Self {
             context,
             command,
-            timeout_at: Instant::now() + COMMAND_TIMEOUT_DURATION,
+            timeout_at: Instant::now() + timeout,
         }
     }
 
@@ -90,12 +89,10 @@ impl ModemStateMachine {
             }
             _ => unreachable!(),
         };
-
-        let timeout_secs = COMMAND_TIMEOUT_DURATION.as_secs();
-        warn!("Command {} timed out after {} seconds", command.sequence, timeout_secs);
-
+        
+        warn!("Command {} timed out!", command.sequence);
         command.respond(ModemResponse::Error {
-            message: format!("Command timed out after {} seconds", timeout_secs)
+            message: "Command timed out!".to_string()
         }).await
     }
 
