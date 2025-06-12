@@ -80,4 +80,8 @@ impl SMSManager {
     pub async fn send_command(&self, request: ModemRequest) -> Result<ModemResponse> {
         self.modem.send_command(request).await
     }
+    
+    pub fn borrow_database(&self) -> &Arc<SMSDatabase> {
+        &self.database
+    }
 }

@@ -1,8 +1,9 @@
 use anyhow::{anyhow, Error};
+use serde::Serialize;
 
 pub type SMSEncryptionKey = [u8; 32];
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Serialize, Debug, sqlx::FromRow)]
 pub struct SMSMessage {
     pub id: Option<i64>,
     pub phone_number: String,
@@ -54,7 +55,7 @@ impl From<SMSIncomingMessage> for SMSMessage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Debug)]
 pub enum SMSStatus {
     Sent,
     Delivered,

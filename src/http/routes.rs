@@ -1,10 +1,34 @@
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::Json;
 use crate::AppState;
 use crate::http::get_modem_json_result;
-use crate::http::types::{HttpResponse, ModemJsonResult, SendSmsRequest};
+use crate::http::types::{FetchSmsRequest, FetchSmsResponse, HttpResponse, ModemJsonResult, SendSmsRequest};
 use crate::modem::types::ModemRequest;
 use crate::sms::types::SMSOutgoingMessage;
+
+pub async fn fetch_sms(
+    State(state): State<AppState>,
+    Json(payload): Json<FetchSmsRequest>
+) -> Result<Json<HttpResponse<FetchSmsResponse>>, StatusCode> {
+    let result = state.sms_manager.borrow_database()
+        .get_messages(&payload.phone_number, i64::from(payload.limit), i64::from(payload.offset))
+        .await;
+    
+    let json = match result {
+        Ok(messages) => Json(HttpResponse {
+            success: true,
+            data: Some(FetchSmsResponse { messages }),
+            error: None
+        }),
+        Err(e) => Json(HttpResponse {
+            success: false,
+            data: None,
+            error: Some(e.to_string())
+        })
+    };
+    Ok(json)
+}
 
 pub async fn send_sms(
     State(state): State<AppState>,

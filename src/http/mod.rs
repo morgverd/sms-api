@@ -39,6 +39,7 @@ async fn get_modem_json_result(
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         .route("/sms/send", post(send_sms))
+        .route("/sms/fetch", post(fetch_sms))
         .route("/sms/network-status", get(get_network_status))
         .route("/sms/signal-strength", get(get_signal_strength))
         .route("/sms/network-operator", get(get_network_operator))
