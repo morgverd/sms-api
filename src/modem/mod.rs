@@ -58,6 +58,7 @@ impl ModemManager {
             (b"AT", b"OK"),                 // Test connection
             (b"ATE0", b"OK"),               // Disable echo
             (b"AT+CMGF=0", b"OK"),          // Set SMS message format to PDU
+            (b"AT+CLIP=1", b"OK"),          // Enable calling line identification (RING identifier)
             (b"AT+CSCS=\"GSM\"", b"OK"),    // Use GSM 7-bit alphabet
             (b"AT+CNMI=2,2,0,1,0", b"OK"),  // Receive all incoming SMS messages and delivery reports
             (b"AT+CSMP=49,167,0,0", b"OK"), // Receive delivery receipts from sent messages

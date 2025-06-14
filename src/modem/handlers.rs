@@ -71,6 +71,7 @@ impl ModemEventHandlers {
     }
 
     pub async fn handle_unsolicited_message(
+        port: &Arc<Mutex<SerialStream>>,
         message_type: &UnsolicitedMessageType,
         header: &str,
         content: &str
@@ -82,6 +83,7 @@ impl ModemEventHandlers {
                 // It is handled here to make sure errors are thrown back up to the ModemManager thread.
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let deliver_pdu = DeliverPdu::try_from(&content_hex as &[u8]).map_err(|e| anyhow!(e))?;
+                // TODO: Validate that the user_data len matches header specified size for a sanity check?
 
                 Ok(Some(ModemIncomingMessage::IncomingSMS {
                     phone_number: deliver_pdu.originating_address.to_string(),
@@ -100,6 +102,16 @@ impl ModemEventHandlers {
                 Ok(Some(ModemIncomingMessage::NetworkStatusChange {
                     status: 0
                 }))
+            },
+            UnsolicitedMessageType::IncomingCall => {
+                
+                // TODO: Content contains the CallerIdentification including phone number etc, maybe parse and display?
+                debug!("Declining incoming call.");
+                {
+                    let mut port_guard = port.lock().await;
+                    port_guard.write_all(b"ATH0").await?;
+                }
+                Ok(None)
             }
         }
     }

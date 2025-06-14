@@ -1,6 +1,5 @@
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
-use log::info;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,7 +101,8 @@ pub struct ModemConfig {
 pub enum UnsolicitedMessageType {
     IncomingSMS,
     DeliveryReport,
-    NetworkStatusChange
+    NetworkStatusChange,
+    IncomingCall
 }
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
@@ -112,6 +112,8 @@ impl UnsolicitedMessageType {
             Some(UnsolicitedMessageType::DeliveryReport)
         } else if header.starts_with("+CGREG:") {
             Some(UnsolicitedMessageType::NetworkStatusChange)
+        } else if header == "RING" {
+            Some(UnsolicitedMessageType::IncomingCall)
         } else {
             None
         }
