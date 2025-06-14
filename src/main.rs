@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::time::Duration;
 use anyhow::{anyhow, bail, Result};
+use env_logger::Env;
 use log::{debug, error, info};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
@@ -28,6 +30,7 @@ impl AppState {
         let (mut modem, main_rx) = ModemManager::new(ModemConfig {
             device: "/dev/ttyS0",
             baud: 115200,
+            read_interval_duration: Duration::from_millis(30),
             cmd_channel_buffer_size: 3
         });
 
@@ -60,8 +63,9 @@ impl AppState {
     
     fn create_receiver(sms_manager: Arc<SMSManager>, mut main_rx: UnboundedReceiver<ModemIncomingMessage>) -> JoinHandle<()> {
         tokio::spawn(async move {
+            info!("Started ModemIncomingMessage reciever");
             while let Some(message) = main_rx.recv().await {
-                info!("AppState modem_receiver: {:?}", message);
+                debug!("AppState modem_receiver: {:?}", message);
 
                 // Forward incoming SMS messages to manager!
                 let forward_result = match message {
@@ -90,6 +94,7 @@ impl AppState {
                 .await
                 .expect("Failed to bind to address");
 
+            info!("Started HTTP listener @ 0.0.0.0:3000");
             axum::serve(listener, app).await
                 .map_err(|e| anyhow!("HTTP server error: {}", e))
         })
@@ -98,9 +103,7 @@ impl AppState {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Debug)
-        .init();
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
     
     let handles = AppState::create().await?;
     tokio::select! {

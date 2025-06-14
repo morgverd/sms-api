@@ -1,7 +1,7 @@
 use std::mem::take;
 use std::sync::Arc;
 use std::time::Instant;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use tokio::sync::{mpsc, Mutex};
 use tokio_serial::SerialStream;
 use anyhow::{bail, Result};
@@ -67,7 +67,7 @@ impl ModemStateMachine {
     }
 
     pub fn start_command(&mut self, cmd: OutgoingCommand, command_state: CommandState) {
-        warn!("Starting command: {:?} with state -> {:?}", cmd, command_state);
+        debug!("Starting command: {:?} with state -> {:?}", cmd, command_state);
         let execution = CommandExecution::new(cmd, command_state);
         self.state = StateMachineState::Command(execution);
     }
@@ -104,15 +104,15 @@ impl ModemStateMachine {
     ) -> Result<()> {
         
         // FIXME: REMOVE THESE LOGS!
-        warn!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
+        debug!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
         let modem_event = match line_event {
             LineEvent::Line(content) => self.classify_line(&content),
             LineEvent::Prompt(content) => ModemEvent::Prompt(content),
         };
-        warn!("ModemStateMachine transition_state: ModemEvent: {:?}, State: {:?}", modem_event, self.state);
+        debug!("ModemStateMachine transition_state: ModemEvent: {:?}, State: {:?}", modem_event, self.state);
 
         let new_state = self.process_event(port, modem_event, main_tx).await?;
-        warn!("ModemStateMachine transition_state: {:?} -> {:?}", self.state, new_state);
+        debug!("ModemStateMachine transition_state: {:?} -> {:?}", self.state, new_state);
         self.state = new_state;
 
         Ok(())
@@ -148,7 +148,7 @@ impl ModemStateMachine {
             // Handle the start of an unsolicited modem event, during command or idle states.
             (StateMachineState::Command(execution), ModemEvent::UnsolicitedMessage { message_type, header }) => {
                 let sequence = execution.context.sequence;
-                info!("Unsolicited message header received during command {}: {:?}", sequence, header);
+                debug!("Unsolicited message header received during command {}: {:?}", sequence, header);
                 Ok(StateMachineState::UnsolicitedMessage {
                     message_type,
                     header,
@@ -156,7 +156,7 @@ impl ModemStateMachine {
                 })
             },
             (StateMachineState::Idle, ModemEvent::UnsolicitedMessage { message_type, header }) => {
-                info!("Unsolicited message header received while idle: {:?}", header);
+                debug!( "Unsolicited message header received while idle: {:?}", header);
                 Ok(StateMachineState::UnsolicitedMessage {
                     message_type,
                     header,

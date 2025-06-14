@@ -5,9 +5,9 @@ mod encryption;
 use std::str::FromStr;
 use std::sync::Arc;
 use anyhow::{bail, Result};
-use huawei_modem::gsm_encoding::GsmMessageData;
-use huawei_modem::pdu::{Pdu, PduAddress};
-use log::info;
+use log::debug;
+use pdu_rs::gsm_encoding::GsmMessageData;
+use pdu_rs::pdu::{PduAddress, SubmitPdu};
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
@@ -28,12 +28,14 @@ impl SMSManager {
     /// https://github.com/eeeeeta/huawei-modem/issues/24
     pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(i64, ModemResponse)> {
         let mut last_response_opt = None;
+        
+        let address = PduAddress::from_str(&*message.phone_number)?;
         for part in GsmMessageData::encode_message(&*message.content) {
 
             // FIXME: This is horrendous, the address is being re-parsed for each split message
             //  because the PDU lib doesn't allow a PduFirstOctet to be directly initialized.
-            let address = PduAddress::from_str(&*message.phone_number)?;
-            let pdu = Pdu::make_simple_message(address, part);
+            let mut pdu = SubmitPdu::make_simple_message(address.clone(), part);
+            pdu.first_octet.srr = true;
 
             let (bytes, size) = pdu.as_bytes();
             let request = ModemRequest::SendSMS {
@@ -48,7 +50,7 @@ impl SMSManager {
             Some(response) => response,
             None => bail!("Missing any valid SendSMS response!")
         };
-        info!("SMSManager last_response: {:?}", last_response);
+        debug!("SMSManager last_response: {:?}", last_response);
 
         let (storage_message, error_message) = match &last_response {
             ModemResponse::SendResult { reference_id } => {
@@ -80,7 +82,7 @@ impl SMSManager {
     pub async fn send_command(&self, request: ModemRequest) -> Result<ModemResponse> {
         self.modem.send_command(request).await
     }
-    
+
     pub fn borrow_database(&self) -> &Arc<SMSDatabase> {
         &self.database
     }

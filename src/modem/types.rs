@@ -1,12 +1,13 @@
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
+use log::info;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModemRequest {
     SendSMS {
-        pdu: String,
-        len: usize
+        len: usize,
+        pdu: String
     },
     GetNetworkStatus,
     GetSignalStrength,
@@ -88,6 +89,11 @@ pub struct ModemConfig {
     pub device: &'static str,
     pub baud: u32,
     
+    /// The read_interval is basically the key indicator of HTTP response speed.
+    /// On average the modem responds within 20-30ms to a basic query.
+    /// Lower value = more reads = higher CPU usage.
+    pub read_interval_duration: Duration,
+    
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     pub cmd_channel_buffer_size: usize
 }
@@ -95,7 +101,6 @@ pub struct ModemConfig {
 #[derive(Debug)]
 pub enum UnsolicitedMessageType {
     IncomingSMS,
-    IncomingCall,
     DeliveryReport,
     NetworkStatusChange
 }
@@ -103,8 +108,6 @@ impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
         if header.starts_with("+CMT") {
             Some(UnsolicitedMessageType::IncomingSMS)
-        } else if header.starts_with("+RING") {
-            Some(UnsolicitedMessageType::IncomingCall)
         } else if header.starts_with("+CDS") {
             Some(UnsolicitedMessageType::DeliveryReport)
         } else if header.starts_with("+CGREG:") {
@@ -122,7 +125,6 @@ pub enum ModemIncomingMessage {
         content: String,
         timestamp: u64
     },
-    IncomingCall,
     DeliveryReport {
         id: String
     },

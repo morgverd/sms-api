@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{anyhow, Result};
-use log::{debug, warn};
+use log::debug;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Row, SqlitePool};
 use crate::sms::encryption::SMSEncryption;
@@ -61,7 +61,6 @@ impl SMSDatabase {
     }
     
     pub async fn insert_message(&self, message: SMSMessage) -> Result<i64> {
-        warn!("INSERT SMSMessage: {:?}", message);
         let encrypted_content = self.encryption.encrypt(&*message.message_content)?;
         let result = sqlx::query(
             "INSERT INTO messages (phone_number, message_content, message_reference, is_outgoing, status) VALUES (?, ?, ?, ?, ?)"
@@ -79,7 +78,6 @@ impl SMSDatabase {
     }
     
     pub async fn insert_send_failure(&self, message_id: i64, error_message: String) -> Result<i64> {
-        warn!("INSERT send_failure. Message ID: {:?}, Error: {:?}", message_id, error_message);
         let result = sqlx::query(
             "INSERT INTO send_failures (id, error_message) VALUES (?, ?)"
         )

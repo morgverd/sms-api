@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use log::{debug, info};
+use pdu_rs::pdu::DeliverPdu;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio_serial::SerialStream;
-use huawei_modem::pdu::DeliverPdu;
 use crate::modem::commands::CommandState;
 use crate::modem::types::{
     ModemRequest,
@@ -91,9 +91,6 @@ impl ModemEventHandlers {
                     timestamp: 0 // TODO: Convert PDU SCTS back into a UNIX timestamp (u64)
                 }))
             },
-            UnsolicitedMessageType::IncomingCall => {
-                Ok(Some(ModemIncomingMessage::IncomingCall))
-            },
             UnsolicitedMessageType::DeliveryReport => {
                 Ok(Some(ModemIncomingMessage::DeliveryReport {
                     id: content.to_string(),
@@ -111,7 +108,7 @@ impl ModemEventHandlers {
         request: &ModemRequest,
         response: &String
     ) -> Result<ModemResponse> {
-        info!("Command response: {:?} -> {:?}", request, response);
+        debug!("Command response: {:?} -> {:?}", request, response);
         
         match request {
             ModemRequest::SendSMS { .. } => {

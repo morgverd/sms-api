@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, Mutex};
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
-use log::{debug, error};
+use log::{debug, error, info};
 use tokio::time::interval;
 use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::OutgoingCommand;
@@ -89,8 +89,9 @@ impl ModemManager {
         // Spawn the main modem handling task.
         // This is passed back to the main thread to be joined with the HTTP server.
         let main_tx = self.main_tx.clone();
+        let read_interval_duration = self.config.read_interval_duration;
         let handle = tokio::spawn(async move {
-            if let Err(e) = Self::modem_task(port, command_rx, main_tx).await {
+            if let Err(e) = Self::modem_task(port, command_rx, main_tx, read_interval_duration).await {
                 error!("Modem task error: {}", e);
             }
         });
@@ -110,13 +111,15 @@ impl ModemManager {
         port: Arc<Mutex<SerialStream>>,
         mut command_rx: mpsc::Receiver<OutgoingCommand>,
         main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
+        read_interval_duration: Duration
     ) -> Result<()> {
         let mut state_machine = ModemStateMachine::default();
         let mut line_buffer = LineBuffer::new();
-        
-        let mut read_interval = interval(Duration::from_millis(10));
+
+        let mut read_interval = interval(read_interval_duration);
         let mut timeout_interval = interval(Duration::from_secs(1));
 
+        info!("Started ModemManager socket handler");
         loop {
             tokio::select! {
                 Some(mut cmd) = command_rx.recv(), if state_machine.can_accept_command() => {
@@ -181,7 +184,7 @@ impl ModemManager {
         let mut buf = [0u8; 1024];
 
         tokio::time::timeout(
-            tokio::time::Duration::from_secs(5),
+            Duration::from_secs(5),
             async {
                 loop {
                     let read_result = {
