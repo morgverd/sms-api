@@ -6,16 +6,13 @@ use tokio::io::{AsyncWriteExt};
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 use log::{debug, error, info};
 use tokio::time::interval;
+use crate::config::ModemConfig;
 use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::OutgoingCommand;
 use crate::modem::handlers::ModemEventHandlers;
 use crate::modem::sender::ModemSender;
 use crate::modem::state_machine::ModemStateMachine;
-use crate::modem::types::{
-    ModemConfig,
-    ModemResponse,
-    ModemIncomingMessage
-};
+use crate::modem::types::{ModemResponse, ModemIncomingMessage};
 
 pub mod types;
 pub mod commands;
@@ -58,7 +55,6 @@ impl ModemManager {
             (b"AT", b"OK"),                 // Test connection
             (b"ATE0", b"OK"),               // Disable echo
             (b"AT+CMGF=0", b"OK"),          // Set SMS message format to PDU
-            (b"AT+CLIP=1", b"OK"),          // Enable calling line identification (RING identifier)
             (b"AT+CSCS=\"GSM\"", b"OK"),    // Use GSM 7-bit alphabet
             (b"AT+CNMI=2,2,0,1,0", b"OK"),  // Receive all incoming SMS messages and delivery reports
             (b"AT+CSMP=49,167,0,0", b"OK"), // Receive delivery receipts from sent messages

@@ -1,3 +1,8 @@
+mod modem;
+mod http;
+mod sms;
+mod config;
+
 use std::sync::Arc;
 use std::time::Duration;
 use anyhow::{anyhow, bail, Result};
@@ -5,15 +10,12 @@ use env_logger::Env;
 use log::{debug, error, info};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
+use crate::config::ModemConfig;
 use crate::http::create_app;
-use crate::modem::types::{ModemConfig, ModemIncomingMessage};
+use crate::modem::types::ModemIncomingMessage;
 use crate::modem::ModemManager;
 use crate::sms::SMSManager;
 use crate::sms::types::SMSIncomingMessage;
-
-mod modem;
-mod http;
-mod sms;
 
 struct AppHandles {
     modem: JoinHandle<()>,
@@ -41,7 +43,7 @@ impl AppState {
         };
 
         // FIXME: TEMP!
-        let database_url = "./sms.db";
+        let database_url = "/home/pi/sms-service.db";
         let encryption_key = [
             147, 203, 89, 45, 12, 178, 234, 67, 91, 156, 23, 88, 201, 142, 76, 39,
             165, 118, 95, 212, 33, 184, 157, 72, 109, 246, 58, 131, 194, 85, 167, 29

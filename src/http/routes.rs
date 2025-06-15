@@ -1,72 +1,50 @@
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::Json;
-use crate::AppState;
+use crate::{AppState, http_post_handler, http_modem_handler};
 use crate::http::get_modem_json_result;
-use crate::http::types::{FetchSmsRequest, FetchSmsResponse, HttpResponse, ModemJsonResult, SendSmsRequest};
 use crate::modem::types::ModemRequest;
 use crate::sms::types::SMSOutgoingMessage;
+use crate::http::types::{HttpResponse, SendSmsRequest, SendSmsResponse, FetchSmsRequest, FetchSmsResponse, FetchLatestNumbersRequest, FetchLatestNumbersResponse};
 
-pub async fn fetch_sms(
-    State(state): State<AppState>,
-    Json(payload): Json<FetchSmsRequest>
-) -> Result<Json<HttpResponse<FetchSmsResponse>>, StatusCode> {
-    let result = state.sms_manager.borrow_database()
-        .get_messages(&payload.phone_number, i64::from(payload.limit), i64::from(payload.offset))
-        .await;
-    
-    let json = match result {
-        Ok(messages) => Json(HttpResponse {
-            success: true,
-            data: Some(FetchSmsResponse { messages }),
-            error: None
-        }),
-        Err(e) => Json(HttpResponse {
-            success: false,
-            data: None,
-            error: Some(e.to_string())
-        })
-    };
-    Ok(json)
-}
+http_post_handler!(
+    db_sms,
+    FetchSmsRequest,
+    FetchSmsResponse,
+    |state, payload| {
+        let messages = state.sms_manager.borrow_database()
+            .get_messages(&payload.phone_number, i64::from(payload.limit), i64::from(payload.offset))
+            .await?;
+        Ok(FetchSmsResponse { messages })
+    }
+);
 
-pub async fn send_sms(
-    State(state): State<AppState>,
-    Json(payload): Json<SendSmsRequest>,
-) -> ModemJsonResult {
-    let message = SMSOutgoingMessage {
-        phone_number: payload.to,
-        content: payload.content,
-    };
-    let response = match state.sms_manager.send_sms(message).await {
-        Ok((_, response)) => response,
-        Err(e) => {
-            return Ok(Json(HttpResponse {
-                success: false,
-                data: None,
-                error: Some(e.to_string())
-            }));
-        }
-    };
-    Ok(Json(HttpResponse {
-        success: true,
-        data: Some(response),
-        error: None,
-    }))
-}
+http_post_handler!(
+    db_latest_numbers,
+    FetchLatestNumbersRequest,
+    FetchLatestNumbersResponse,
+    |state, payload| {
+        let numbers = state.sms_manager.borrow_database()
+            .get_latest_numbers(i64::from(payload.limit), i64::from(payload.offset))
+            .await?;
+        Ok(FetchLatestNumbersResponse { numbers })
+    }
+);
 
-macro_rules! modem_get_handler {
-    ($fn_name:ident, $modem_req:expr) => {
-        pub async fn $fn_name(
-            State(state): State<AppState>
-        ) -> ModemJsonResult {
-            get_modem_json_result(state, $modem_req).await
-        }
-    };
-}
+http_post_handler!(
+    sms_send,
+    SendSmsRequest,
+    SendSmsResponse,
+    |state, payload| {
+        let outgoing = SMSOutgoingMessage {
+            phone_number: payload.to,
+            content: payload.content,
+        };
+        let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;
+        Ok(SendSmsResponse { message_id, response })
+    }
+);
 
-modem_get_handler!(get_network_status, ModemRequest::GetNetworkStatus);
-modem_get_handler!(get_signal_strength, ModemRequest::GetSignalStrength);
-modem_get_handler!(get_network_operator, ModemRequest::GetNetworkOperator);
-modem_get_handler!(get_service_provider, ModemRequest::GetServiceProvider);
-modem_get_handler!(get_battery_level, ModemRequest::GetBatteryLevel);
+http_modem_handler!(sms_get_network_status, ModemRequest::GetNetworkStatus);
+http_modem_handler!(sms_get_signal_strength, ModemRequest::GetSignalStrength);
+http_modem_handler!(sms_get_network_operator, ModemRequest::GetNetworkOperator);
+http_modem_handler!(sms_get_service_provider, ModemRequest::GetServiceProvider);
+http_modem_handler!(sms_get_battery_level, ModemRequest::GetBatteryLevel);

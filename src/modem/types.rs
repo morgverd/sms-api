@@ -83,26 +83,11 @@ pub enum ModemEvent {
     Prompt(String),
 }
 
-#[derive(Debug, Clone)]
-pub struct ModemConfig {
-    pub device: &'static str,
-    pub baud: u32,
-    
-    /// The read_interval is basically the key indicator of HTTP response speed.
-    /// On average the modem responds within 20-30ms to a basic query.
-    /// Lower value = more reads = higher CPU usage.
-    pub read_interval_duration: Duration,
-    
-    /// The size of Command bounded mpsc sender, should be low. eg: 32
-    pub cmd_channel_buffer_size: usize
-}
-
 #[derive(Debug)]
 pub enum UnsolicitedMessageType {
     IncomingSMS,
     DeliveryReport,
-    NetworkStatusChange,
-    IncomingCall
+    NetworkStatusChange
 }
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
@@ -112,8 +97,6 @@ impl UnsolicitedMessageType {
             Some(UnsolicitedMessageType::DeliveryReport)
         } else if header.starts_with("+CGREG:") {
             Some(UnsolicitedMessageType::NetworkStatusChange)
-        } else if header == "RING" {
-            Some(UnsolicitedMessageType::IncomingCall)
         } else {
             None
         }

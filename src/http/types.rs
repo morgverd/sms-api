@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::modem::types::ModemResponse;
 use crate::sms::types::SMSMessage;
 
-pub type ModemJsonResult = Result<Json<HttpResponse<ModemResponse>>, StatusCode>;
+pub type JsonResult<T> = Result<Json<HttpResponse<T>>, (StatusCode, Json<HttpResponse<T>>)>;
 
 #[derive(Serialize)]
 pub struct HttpResponse<T> {
@@ -19,6 +19,12 @@ pub struct SendSmsRequest {
     pub content: String
 }
 
+#[derive(Serialize)]
+pub struct SendSmsResponse {
+    pub message_id: i64,
+    pub response: ModemResponse
+}
+
 #[derive(Deserialize)]
 pub struct FetchSmsRequest {
     pub phone_number: String,
@@ -29,4 +35,15 @@ pub struct FetchSmsRequest {
 #[derive(Serialize)]
 pub struct FetchSmsResponse {
     pub messages: Vec<SMSMessage>
+}
+
+#[derive(Deserialize)]
+pub struct FetchLatestNumbersRequest {
+    pub limit: u32,
+    pub offset: u32
+}
+
+#[derive(Serialize)]
+pub struct FetchLatestNumbersResponse {
+    pub numbers: Vec<String>
 }

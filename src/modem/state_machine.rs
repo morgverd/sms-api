@@ -131,7 +131,7 @@ impl ModemStateMachine {
             (StateMachineState::UnsolicitedMessage { message_type, header, interrupted_command }, ModemEvent::Data(content)) => {
 
                 // Handle the unsolicited message data, sending the parsed ModemReceivedMessage back to main_tx.
-                match ModemEventHandlers::handle_unsolicited_message(&port, &message_type, &header, &content).await {
+                match ModemEventHandlers::handle_unsolicited_message(&message_type, &header, &content).await {
                     Ok(message) => if let Some(message) = message {
                         let _ = main_tx.send(message);
                     },

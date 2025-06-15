@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
-use log::{debug, info};
+use log::debug;
 use pdu_rs::pdu::DeliverPdu;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -71,7 +71,6 @@ impl ModemEventHandlers {
     }
 
     pub async fn handle_unsolicited_message(
-        port: &Arc<Mutex<SerialStream>>,
         message_type: &UnsolicitedMessageType,
         header: &str,
         content: &str
@@ -102,16 +101,6 @@ impl ModemEventHandlers {
                 Ok(Some(ModemIncomingMessage::NetworkStatusChange {
                     status: 0
                 }))
-            },
-            UnsolicitedMessageType::IncomingCall => {
-                
-                // TODO: Content contains the CallerIdentification including phone number etc, maybe parse and display?
-                debug!("Declining incoming call.");
-                {
-                    let mut port_guard = port.lock().await;
-                    port_guard.write_all(b"ATH0").await?;
-                }
-                Ok(None)
             }
         }
     }

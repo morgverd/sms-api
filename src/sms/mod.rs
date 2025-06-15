@@ -28,7 +28,7 @@ impl SMSManager {
     /// https://github.com/eeeeeta/huawei-modem/issues/24
     pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(i64, ModemResponse)> {
         let mut last_response_opt = None;
-        
+
         let address = PduAddress::from_str(&*message.phone_number)?;
         for part in GsmMessageData::encode_message(&*message.content) {
 
