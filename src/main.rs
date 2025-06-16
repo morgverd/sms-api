@@ -4,18 +4,17 @@ mod sms;
 mod config;
 
 use std::sync::Arc;
-use std::time::Duration;
-use anyhow::{anyhow, bail, Error, Result};
+use anyhow::{bail, Result};
 use env_logger::Env;
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use crate::config::AppConfig;
 use crate::http::create_app;
-use crate::modem::types::{ModemIncomingMessage, ModemRequest};
+use crate::modem::types::ModemIncomingMessage;
 use crate::modem::ModemManager;
 use crate::sms::SMSManager;
-use crate::sms::types::{SMSIncomingMessage, SMSOutgoingMessage};
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
 macro_rules! tokio_select_with_logging {
     ($($name:expr => $handle:expr),+ $(,)?) => {
@@ -69,22 +68,31 @@ impl AppState {
             while let Some(message) = main_rx.recv().await {
                 debug!("AppState modem_receiver: {:?}", message);
 
-                // Forward incoming SMS messages to manager!
-                let forward_result = match message {
+                match message {
                     ModemIncomingMessage::IncomingSMS { phone_number, content } => {
                         let incoming = SMSIncomingMessage {
                             phone_number,
                             content
                         };
-                        sms_manager.accept_incoming(incoming).await
+                        match sms_manager.handle_incoming_sms(incoming).await {
+                            Ok(row_id) => debug!("Stored SMSIncomingMessage #{}", row_id),
+                            Err(e) => error!("Failed to store SMSIncomingMessage with error: {:?}", e)
+                        }
                     },
-                    _ => Err(anyhow!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message))
+                    ModemIncomingMessage::DeliveryReport { status, phone_number, reference_id } => {
+                        let report = SMSIncomingDeliveryReport {
+                            status,
+                            phone_number,
+                            reference_id
+                        };
+                        match sms_manager.handle_delivery_report(report).await {
+                            Ok(message_id) => debug!("Updated delivery report status for message #{}", message_id),
+                            Err(e) => error!("Failed to update message delivery report with error: {:?}", e)
+                        }
+                    }
+                    _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)
                 };
-                
-                match forward_result {
-                    Ok(row_id) => debug!("AppState modem_receiver: Stored SMSIncomingMessage #{}", row_id),
-                    Err(e) => error!("AppState modem_receiver: Failed to store SMSIncomingMessage with error: {:?}", e)
-                }
+
             }
         })
     }

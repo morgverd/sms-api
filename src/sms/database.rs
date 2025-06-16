@@ -61,11 +61,17 @@ impl SMSDatabase {
         Ok(())
     }
     
-    pub async fn insert_message(&self, message: SMSMessage) -> Result<i64> {
+    pub async fn insert_message(&self, message: SMSMessage, is_final: bool) -> Result<i64> {
         let encrypted_content = self.encryption.encrypt(&*message.message_content)?;
-        let result = sqlx::query(
-            "INSERT INTO messages (phone_number, message_content, message_reference, is_outgoing, status) VALUES (?, ?, ?, ?, ?)"
-        )
+        let result = if is_final {
+            sqlx::query(
+                "INSERT INTO messages (phone_number, message_content, message_reference, is_outgoing, status, completed_at) VALUES (?, ?, ?, ?, ?, unixepoch())"
+            )
+        } else {
+            sqlx::query(
+                "INSERT INTO messages (phone_number, message_content, message_reference, is_outgoing, status) VALUES (?, ?, ?, ?, ?)"
+            )
+        }
             .bind(message.phone_number)
             .bind(encrypted_content)
             .bind(message.message_reference)
@@ -80,7 +86,7 @@ impl SMSDatabase {
     
     pub async fn insert_send_failure(&self, message_id: i64, error_message: String) -> Result<i64> {
         let result = sqlx::query(
-            "INSERT INTO send_failures (id, error_message) VALUES (?, ?)"
+            "INSERT INTO send_failures (message_id, error_message) VALUES (?, ?)"
         )
             .bind(message_id)
             .bind(error_message)
@@ -89,6 +95,54 @@ impl SMSDatabase {
             .map_err(|e| anyhow!(e))?;
         
         Ok(result.last_insert_rowid())
+    }
+
+    pub async fn insert_delivery_report(&self, message_id: i64, status: u8, is_final: bool) -> Result<i64> {
+        let result = sqlx::query(
+            "INSERT INTO delivery_reports (message_id, status, is_final) VALUES (?, ?, ?)"
+        )
+            .bind(message_id)
+            .bind(status)
+            .bind(is_final)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| anyhow!(e))?;
+
+        Ok(result.last_insert_rowid())
+    }
+
+    pub async fn get_delivery_report_target_message(&self, phone_number: String, reference_id: u8) -> Result<Option<i64>> {
+        let result = sqlx::query_scalar(
+            "SELECT message_id FROM messages WHERE completed_at IS NULL AND is_outgoing = 1 AND phone_number = ? AND message_reference = ? ORDER BY message_id DESC LIMIT 1"
+        )
+            .bind(phone_number)
+            .bind(reference_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| anyhow!(e))?;
+
+        Ok(result)
+    }
+
+    pub async fn update_message_status(&self, message_id: i64, status: SMSStatus, completed: bool) -> Result<()> {
+        let query = if completed {
+            sqlx::query(
+                "UPDATE messages SET status = ?, completed_at = unixepoch() WHERE message_id = ?"
+            )
+        } else {
+            sqlx::query(
+                "UPDATE messages SET status = ? WHERE message_id = ?"
+            )
+        };
+
+        query
+            .bind(u8::from(status))
+            .bind(message_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| anyhow!(e))?;
+
+        Ok(())
     }
 
     pub async fn get_latest_numbers(&self, limit: i64, offset: i64) -> Result<Vec<String>> {
@@ -108,10 +162,10 @@ impl SMSDatabase {
         &self,
         phone_number: &str,
         limit: i64,
-        offset: i64,
+        offset: i64
     ) -> Result<Vec<SMSMessage>> {
         let result = sqlx::query(
-            "SELECT id, phone_number, message_content, message_reference, is_outgoing, status, created_at, updated_at FROM messages WHERE phone_number = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            "SELECT message_id, phone_number, message_content, message_reference, is_outgoing, status, created_at, completed_at FROM messages WHERE phone_number = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
         )
             .bind(phone_number)
             .bind(limit)
@@ -123,14 +177,14 @@ impl SMSDatabase {
         result.into_iter()
             .map(|row| -> Result<SMSMessage> {
                 Ok(SMSMessage {
-                    id: row.get("id"),
+                    message_id: row.get("message_id"),
                     phone_number: row.get("phone_number"),
                     message_content: self.encryption.decrypt(&row.get::<String, _>("message_content"))?,
                     message_reference: row.get("message_reference"),
                     is_outgoing: row.get("is_outgoing"),
                     status: SMSStatus::try_from(row.get::<u8, _>("status"))?,
                     created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
+                    completed_at: row.get("completed_at")
                 })
             })
             .collect::<Result<Vec<_>, _>>()
