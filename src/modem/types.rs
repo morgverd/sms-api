@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
+use pdu_rs::pdu::MessageStatus;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,14 +30,16 @@ pub enum ModemResponse {
         reference_id: u8
     },
     NetworkStatus {
-        operator: String
+        registration: u8,
+        technology: u8
     },
     SignalStrength {
         rssi: i32,
-        ber: i32,
-        quality: String
+        ber: i32
     },
     NetworkOperator {
+        status: u8,
+        format: u8,
         operator: String
     },
     ServiceProvider {
@@ -56,10 +59,10 @@ impl Display for ModemResponse {
         match self {
             ModemResponse::SendResult { reference_id } =>
                 write!(f, "SMSResult: Ref {}", reference_id),
-            ModemResponse::NetworkStatus { operator } =>
-                write!(f, "NetworkStatus: {}", operator),
-            ModemResponse::SignalStrength { rssi, quality, .. } =>
-                write!(f, "SignalStrength: {} dBm ({})", rssi, quality),
+            ModemResponse::NetworkStatus { registration, technology } =>
+                write!(f, "NetworkStatus: Reg: {}, Tech: {}", registration, technology),
+            ModemResponse::SignalStrength { rssi, ber } =>
+                write!(f, "SignalStrength: {} dBm ({})", rssi, ber),
             ModemResponse::NetworkOperator { operator, .. } =>
                 write!(f, "NetworkOperator: {}", operator),
             ModemResponse::ServiceProvider { operator, .. } =>
@@ -107,11 +110,12 @@ impl UnsolicitedMessageType {
 pub enum ModemIncomingMessage {
     IncomingSMS {
         phone_number: String,
-        content: String,
-        timestamp: u64
+        content: String
     },
     DeliveryReport {
-        id: String
+        status: MessageStatus,
+        phone_number: String,
+        reference_id: u8
     },
     NetworkStatusChange {
         status: u8

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use log::debug;
-use pdu_rs::pdu::DeliverPdu;
+use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio_serial::SerialStream;
@@ -78,23 +78,28 @@ impl ModemEventHandlers {
         match message_type {
             UnsolicitedMessageType::IncomingSMS => {
 
-                // Decode SMS_DELIVER PDU into an IncomingSMS before sending through to main channel.
-                // It is handled here to make sure errors are thrown back up to the ModemManager thread.
+                // Decode SMS_DELIVER PDU into an IncomingSMS.
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
-                let deliver_pdu = DeliverPdu::try_from(&content_hex as &[u8]).map_err(|e| anyhow!(e))?;
+                let deliver_pdu = DeliverPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
                 // TODO: Validate that the user_data len matches header specified size for a sanity check?
 
                 Ok(Some(ModemIncomingMessage::IncomingSMS {
                     phone_number: deliver_pdu.originating_address.to_string(),
                     content: deliver_pdu.get_message_data()
                         .decode_message()
-                        .map_err(|e| anyhow!(e))?.text,
-                    timestamp: 0 // TODO: Convert PDU SCTS back into a UNIX timestamp (u64)
+                        .map_err(|e| anyhow!(e))?.text
                 }))
             },
             UnsolicitedMessageType::DeliveryReport => {
+
+                // Decode SMS_STATUS_REPORT PDU into a DeliveryReport.
+                let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
+                let status_report_pdu = StatusReportPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
+
                 Ok(Some(ModemIncomingMessage::DeliveryReport {
-                    id: content.to_string(),
+                    status: status_report_pdu.status,
+                    phone_number: status_report_pdu.recipient_address.to_string(),
+                    reference_id: status_report_pdu.message_reference
                 }))
             },
             UnsolicitedMessageType::NetworkStatusChange => {

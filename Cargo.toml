@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pdu-rs = { git = "https://github.com/morgverd/pdu-rs", branch = "main" }
 tokio = { version = "1.45.1", features = ["full"] }
 anyhow = "1.0.98"
 tokio-serial = "5.4.5"
@@ -21,4 +22,4 @@ rand = "0.9.1"
 base64 = "0.22.1"
 aes-gcm = "0.10.3"
 cipher = "0.4.4"
-pdu-rs = { path = "../pdu-rs" }
+dotenv = "0.15.0"

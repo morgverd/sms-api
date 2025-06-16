@@ -5,22 +5,33 @@ mod config;
 
 use std::sync::Arc;
 use std::time::Duration;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Error, Result};
 use env_logger::Env;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
-use crate::config::ModemConfig;
+use crate::config::AppConfig;
 use crate::http::create_app;
-use crate::modem::types::ModemIncomingMessage;
+use crate::modem::types::{ModemIncomingMessage, ModemRequest};
 use crate::modem::ModemManager;
 use crate::sms::SMSManager;
-use crate::sms::types::SMSIncomingMessage;
+use crate::sms::types::{SMSIncomingMessage, SMSOutgoingMessage};
+
+macro_rules! tokio_select_with_logging {
+    ($($name:expr => $handle:expr),+ $(,)?) => {
+        tokio::select! {
+            $(result = $handle => match result {
+                Ok(()) => info!("{} task completed", $name),
+                Err(e) => error!("{} task failed: {:?}", $name, e)
+            }),+
+        }
+    };
+}
 
 struct AppHandles {
     modem: JoinHandle<()>,
     receiver: JoinHandle<()>,
-    http: JoinHandle<Result<()>>
+    http: JoinHandle<()>
 }
 
 #[derive(Clone)]
@@ -29,12 +40,8 @@ struct AppState {
 }
 impl AppState {
     pub async fn create() -> Result<AppHandles> {
-        let (mut modem, main_rx) = ModemManager::new(ModemConfig {
-            device: "/dev/ttyS0",
-            baud: 115200,
-            read_interval_duration: Duration::from_millis(30),
-            cmd_channel_buffer_size: 3
-        });
+        let config = AppConfig::load_from_env()?;
+        let (mut modem, main_rx) = ModemManager::new(config.modem);
 
         // Start Modem task and get handle to join with HTTP server.
         let modem_handle = match modem.start().await {
@@ -42,17 +49,10 @@ impl AppState {
             Err(e) => bail!("Failed to start ModemManager: {}", e)
         };
 
-        // FIXME: TEMP!
-        let database_url = "/home/pi/sms-service.db";
-        let encryption_key = [
-            147, 203, 89, 45, 12, 178, 234, 67, 91, 156, 23, 88, 201, 142, 76, 39,
-            165, 118, 95, 212, 33, 184, 157, 72, 109, 246, 58, 131, 194, 85, 167, 29
-        ];
-
         // Create shared ModemManager.
         let modem_sender = modem.get_sender()?;
         let sms_manager = Arc::new(
-            SMSManager::new(modem_sender, database_url, encryption_key).await?
+            SMSManager::new(config.sms, modem_sender).await?
         );
         
         let handles = AppHandles {
@@ -71,7 +71,7 @@ impl AppState {
 
                 // Forward incoming SMS messages to manager!
                 let forward_result = match message {
-                    ModemIncomingMessage::IncomingSMS { phone_number, content, .. } => {
+                    ModemIncomingMessage::IncomingSMS { phone_number, content } => {
                         let incoming = SMSIncomingMessage {
                             phone_number,
                             content
@@ -89,7 +89,7 @@ impl AppState {
         })
     }
     
-    fn create_http(sms_manager: Arc<SMSManager>) -> JoinHandle<Result<()>> {
+    fn create_http(sms_manager: Arc<SMSManager>) -> JoinHandle<()> {
         tokio::spawn(async move {
             let app = create_app(Self { sms_manager });
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
@@ -97,8 +97,10 @@ impl AppState {
                 .expect("Failed to bind to address");
 
             info!("Started HTTP listener @ 0.0.0.0:3000");
-            axum::serve(listener, app).await
-                .map_err(|e| anyhow!("HTTP server error: {}", e))
+            match axum::serve(listener, app).await {
+                Ok(_) => debug!("HTTP server terminated."),
+                Err(e) => error!("HTTP server error: {:?}", e)
+            }
         })
     }
 }
@@ -108,26 +110,10 @@ async fn main() -> Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
     
     let handles = AppState::create().await?;
-    tokio::select! {
-        result = handles.modem => {
-            match result {
-                Ok(()) => info!("Modem Handler task completed successfully"),
-                Err(e) => error!("Modem Handler task failed: {}", e)
-            }
-        }
-        result = handles.receiver => {
-            match result {
-                Ok(()) => info!("Modem Receiver task completed successfully"),
-                Err(e) => error!("Modem Receiver task failed: {}", e)
-            }
-        },
-        result = handles.http => {
-            match result {
-                Ok(Ok(())) => info!("HTTP task completed successfully"),
-                Ok(Err(e)) => error!("HTTP task failed: {}", e),
-                Err(e) => error!("HTTP task panicked: {}", e),
-            }
-        }
+    tokio_select_with_logging! {
+        "Modem Handler" => handles.modem,
+        "Modem Receiver" => handles.receiver,
+        "HTTP Server" => handles.http
     }
 
     Ok(())

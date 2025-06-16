@@ -4,14 +4,15 @@ mod encryption;
 
 use std::str::FromStr;
 use std::sync::Arc;
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use log::debug;
 use pdu_rs::gsm_encoding::GsmMessageData;
-use pdu_rs::pdu::{PduAddress, SubmitPdu};
+use pdu_rs::pdu::{DataCodingScheme, MessageType, PduAddress, PduFirstOctet, SubmitPdu, TypeOfNumber, VpFieldValidity};
+use crate::config::SMSConfig;
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
-use crate::sms::types::{SMSEncryptionKey, SMSIncomingMessage, SMSMessage, SMSOutgoingMessage, SMSStatus};
+use crate::sms::types::{SMSIncomingMessage, SMSMessage, SMSOutgoingMessage, SMSStatus};
 
 #[derive(Clone)]
 pub struct SMSManager {
@@ -19,30 +20,62 @@ pub struct SMSManager {
     database: Arc<SMSDatabase>
 }
 impl SMSManager {
-    pub async fn new(modem: ModemSender, database_url: &str, encryption_key: SMSEncryptionKey) -> Result<Self> {
-        let database = Arc::new(SMSDatabase::connect(database_url, encryption_key).await?);
+    pub async fn new(config: SMSConfig, modem: ModemSender) -> Result<Self> {
+        let database = Arc::new(SMSDatabase::connect(config).await?);
         Ok(Self { modem, database })
+    }
+
+    fn create_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
+        let address = PduAddress::from_str(&*message.phone_number)?;
+        if !matches!(address.type_addr.type_of_number, TypeOfNumber::International) {
+            return Err(anyhow!("Sending phone number must be in international format!"));
+        }
+
+        let requests = GsmMessageData::encode_message(&*message.content)
+            .into_iter()
+            .map(|message| {
+                let pdu = SubmitPdu {
+                    sca: None,
+                    first_octet: PduFirstOctet {
+                        mti: MessageType::SmsSubmit,
+                        rd: false,
+                        vpf: VpFieldValidity::Relative,
+                        srr: true,
+                        udhi: message.udh,
+                        rp: false,
+                    },
+                    message_id: 0,
+                    destination: address.clone(),
+                    dcs: DataCodingScheme::Standard {
+                        compressed: false,
+                        class: None,
+                        encoding: message.encoding
+                    },
+                    validity_period: 167,
+                    user_data: message.bytes,
+                    user_data_len: message.user_data_len,
+                };
+
+                let (bytes, size) = pdu.as_bytes();
+                ModemRequest::SendSMS {
+                    pdu: hex::encode(bytes),
+                    len: size
+                }
+            })
+            .collect::<Vec<ModemRequest>>();
+
+        Ok(requests)
     }
 
     /// Returns the database row ID and final modem response.
     /// https://github.com/eeeeeta/huawei-modem/issues/24
     pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(i64, ModemResponse)> {
+
+        // Send each send request for message, returning the last message.
         let mut last_response_opt = None;
-
-        let address = PduAddress::from_str(&*message.phone_number)?;
-        for part in GsmMessageData::encode_message(&*message.content) {
-
-            // FIXME: This is horrendous, the address is being re-parsed for each split message
-            //  because the PDU lib doesn't allow a PduFirstOctet to be directly initialized.
-            let mut pdu = SubmitPdu::make_simple_message(address.clone(), part);
-            pdu.first_octet.srr = true;
-
-            let (bytes, size) = pdu.as_bytes();
-            let request = ModemRequest::SendSMS {
-                pdu: hex::encode(bytes),
-                len: size,
-            };
-            last_response_opt = Some(self.modem.send_command(request).await?);
+        for request in Self::create_requests(&message)? {
+            let response = self.modem.send_command(request).await?;
+            last_response_opt.replace(response);
         }
 
         // Ensure there was at least one response back, otherwise nothing was actually sent somehow?

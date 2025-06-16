@@ -44,7 +44,7 @@ impl ModemManager {
         self.command_tx = Some(command_tx);
 
         let mut port = Arc::new(Mutex::new(
-            tokio_serial::new(*&self.config.device, self.config.baud)
+            tokio_serial::new(&self.config.device, self.config.baud)
                 .open_native_async()
                 .map_err(|e| anyhow!("Failed to open serial port {}: {}", self.config.device, e))?
         ));

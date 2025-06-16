@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use log::debug;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Row, SqlitePool};
+use crate::config::SMSConfig;
 use crate::sms::encryption::SMSEncryption;
 use crate::sms::types::{SMSMessage, SMSStatus};
 
@@ -13,9 +14,9 @@ pub struct SMSDatabase {
     encryption: SMSEncryption
 }
 impl SMSDatabase {
-    pub async fn connect(database_url: &str, encryption_key: [u8; 32]) -> Result<Self> {
+    pub async fn connect(config: SMSConfig) -> Result<Self> {
         let connection_options = SqliteConnectOptions::new()
-            .filename(database_url)
+            .filename(config.database_url)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
@@ -44,7 +45,7 @@ impl SMSDatabase {
 
         let db = Self {
             pool,
-            encryption: SMSEncryption::new(encryption_key)
+            encryption: SMSEncryption::new(config.encryption_key)
         };
         db.init_tables().await?;
         Ok(db)
