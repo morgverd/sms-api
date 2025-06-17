@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Error};
 use pdu_rs::pdu::MessageStatus;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
 pub type SMSEncryptionKey = [u8; 32];
 
@@ -101,8 +102,17 @@ impl TryFrom<u8> for SMSStatus {
     }
 }
 
+#[derive(Debug)]
 pub struct SMSIncomingDeliveryReport {
     pub status: MessageStatus,
     pub phone_number: String,
     pub reference_id: u8
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct SMSDeliveryReport {
+    pub report_id: Option<i64>,
+    pub status: u8,
+    pub is_final: bool,
+    pub created_at: Option<u64>
 }

@@ -14,7 +14,6 @@ use crate::http::create_app;
 use crate::modem::types::ModemIncomingMessage;
 use crate::modem::ModemManager;
 use crate::sms::SMSManager;
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
 macro_rules! tokio_select_with_logging {
     ($($name:expr => $handle:expr),+ $(,)?) => {
@@ -69,22 +68,13 @@ impl AppState {
                 debug!("AppState modem_receiver: {:?}", message);
 
                 match message {
-                    ModemIncomingMessage::IncomingSMS { phone_number, content } => {
-                        let incoming = SMSIncomingMessage {
-                            phone_number,
-                            content
-                        };
+                    ModemIncomingMessage::IncomingSMS(incoming) => {
                         match sms_manager.handle_incoming_sms(incoming).await {
                             Ok(row_id) => debug!("Stored SMSIncomingMessage #{}", row_id),
                             Err(e) => error!("Failed to store SMSIncomingMessage with error: {:?}", e)
                         }
                     },
-                    ModemIncomingMessage::DeliveryReport { status, phone_number, reference_id } => {
-                        let report = SMSIncomingDeliveryReport {
-                            status,
-                            phone_number,
-                            reference_id
-                        };
+                    ModemIncomingMessage::DeliveryReport(report) => {
                         match sms_manager.handle_delivery_report(report).await {
                             Ok(message_id) => debug!("Updated delivery report status for message #{}", message_id),
                             Err(e) => error!("Failed to update message delivery report with error: {:?}", e)
@@ -92,7 +82,6 @@ impl AppState {
                     }
                     _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)
                 };
-
             }
         })
     }

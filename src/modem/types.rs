@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
-use pdu_rs::pdu::MessageStatus;
 use serde::{Deserialize, Serialize};
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModemRequest {
@@ -108,15 +108,8 @@ impl UnsolicitedMessageType {
 
 #[derive(Debug)]
 pub enum ModemIncomingMessage {
-    IncomingSMS {
-        phone_number: String,
-        content: String
-    },
-    DeliveryReport {
-        status: MessageStatus,
-        phone_number: String,
-        reference_id: u8
-    },
+    IncomingSMS(SMSIncomingMessage),
+    DeliveryReport(SMSIncomingDeliveryReport),
     NetworkStatusChange {
         status: u8
     },

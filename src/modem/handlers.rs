@@ -12,6 +12,7 @@ use crate::modem::types::{
     ModemIncomingMessage,
     UnsolicitedMessageType
 };
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
 pub struct ModemEventHandlers;
 impl ModemEventHandlers {
@@ -83,12 +84,13 @@ impl ModemEventHandlers {
                 let deliver_pdu = DeliverPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
                 // TODO: Validate that the user_data len matches header specified size for a sanity check?
 
-                Ok(Some(ModemIncomingMessage::IncomingSMS {
+                let incoming = SMSIncomingMessage {
                     phone_number: deliver_pdu.originating_address.to_string(),
                     content: deliver_pdu.get_message_data()
                         .decode_message()
                         .map_err(|e| anyhow!(e))?.text
-                }))
+                };
+                Ok(Some(ModemIncomingMessage::IncomingSMS(incoming)))
             },
             UnsolicitedMessageType::DeliveryReport => {
 
@@ -96,11 +98,12 @@ impl ModemEventHandlers {
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let status_report_pdu = StatusReportPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
 
-                Ok(Some(ModemIncomingMessage::DeliveryReport {
+                let report = SMSIncomingDeliveryReport {
                     status: status_report_pdu.status,
                     phone_number: status_report_pdu.recipient_address.to_string(),
-                    reference_id: status_report_pdu.message_reference
-                }))
+                    reference_id: status_report_pdu.message_reference,
+                };
+                Ok(Some(ModemIncomingMessage::DeliveryReport(report)))
             },
             UnsolicitedMessageType::NetworkStatusChange => {
                 Ok(Some(ModemIncomingMessage::NetworkStatusChange {
