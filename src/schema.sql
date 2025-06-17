@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS delivery_reports (
     message_id INTEGER NOT NULL,
     status INTEGER NOT NULL,
     is_final BOOLEAN NOT NULL,
-    received_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     FOREIGN KEY (message_id) REFERENCES messages(message_id) ON DELETE CASCADE
 );
 

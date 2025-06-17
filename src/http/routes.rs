@@ -2,30 +2,39 @@ use axum::extract::State;
 use crate::{AppState, http_post_handler, http_modem_handler};
 use crate::http::get_modem_json_result;
 use crate::modem::types::ModemRequest;
-use crate::sms::types::SMSOutgoingMessage;
-use crate::http::types::{HttpResponse, SendSmsRequest, SendSmsResponse, FetchSmsRequest, FetchSmsResponse, FetchLatestNumbersRequest, FetchLatestNumbersResponse};
+use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
+use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse};
 
 http_post_handler!(
     db_sms,
-    FetchSmsRequest,
-    FetchSmsResponse,
+    PhoneNumberFetchRequest,
+    Vec<SMSMessage>,
     |state, payload| {
-        let messages = state.sms_manager.borrow_database()
-            .get_messages(&payload.phone_number, i64::from(payload.limit), i64::from(payload.offset))
-            .await?;
-        Ok(FetchSmsResponse { messages })
+        state.sms_manager.borrow_database()
+            .get_messages(&payload.phone_number, payload.limit, payload.offset)
+            .await
     }
 );
 
 http_post_handler!(
     db_latest_numbers,
-    FetchLatestNumbersRequest,
-    FetchLatestNumbersResponse,
+    GlobalFetchRequest,
+    Vec<String>,
     |state, payload| {
-        let numbers = state.sms_manager.borrow_database()
-            .get_latest_numbers(i64::from(payload.limit), i64::from(payload.offset))
-            .await?;
-        Ok(FetchLatestNumbersResponse { numbers })
+        state.sms_manager.borrow_database()
+            .get_latest_numbers(payload.limit, payload.offset)
+            .await
+    }
+);
+
+http_post_handler!(
+    db_delivery_reports,
+    MessageIdFetchRequest,
+    Vec<SMSDeliveryReport>,
+    |state, payload| {
+        state.sms_manager.borrow_database()
+            .get_delivery_reports(payload.message_id, payload.limit, payload.offset)
+            .await
     }
 );
 

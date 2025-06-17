@@ -5,7 +5,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use sqlx::{Row, SqlitePool};
 use crate::config::SMSConfig;
 use crate::sms::encryption::SMSEncryption;
-use crate::sms::types::{SMSMessage, SMSStatus};
+use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSStatus};
 
 const SCHEMA_SQL: &str = include_str!("../schema.sql");
 
@@ -145,12 +145,12 @@ impl SMSDatabase {
         Ok(())
     }
 
-    pub async fn get_latest_numbers(&self, limit: i64, offset: i64) -> Result<Vec<String>> {
+    pub async fn get_latest_numbers(&self, limit: u64, offset: u64) -> Result<Vec<String>> {
         let result: Vec<Option<String>> = sqlx::query_scalar(
             "SELECT phone_number FROM messages GROUP BY phone_number ORDER BY MAX(created_at) DESC LIMIT ? OFFSET ?"
         )
-            .bind(limit)
-            .bind(offset)
+            .bind(limit as i64)
+            .bind(offset as i64)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -161,15 +161,15 @@ impl SMSDatabase {
     pub async fn get_messages(
         &self,
         phone_number: &str,
-        limit: i64,
-        offset: i64
+        limit: u64,
+        offset: u64
     ) -> Result<Vec<SMSMessage>> {
         let result = sqlx::query(
             "SELECT message_id, phone_number, message_content, message_reference, is_outgoing, status, created_at, completed_at FROM messages WHERE phone_number = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
         )
             .bind(phone_number)
-            .bind(limit)
-            .bind(offset)
+            .bind(limit as i64)
+            .bind(offset as i64)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -188,5 +188,22 @@ impl SMSDatabase {
                 })
             })
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    pub async fn get_delivery_reports(
+        &self,
+        message_id: i64,
+        limit: u64,
+        offset: u64
+    ) -> Result<Vec<SMSDeliveryReport>> {
+        sqlx::query_as(
+            "SELECT report_id, message_id, status, is_final, created_at FROM delivery_reports WHERE message_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        )
+            .bind(message_id)
+            .bind(limit as i64)
+            .bind(offset as i64)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| anyhow!(e))
     }
 }
