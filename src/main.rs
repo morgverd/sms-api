@@ -136,7 +136,6 @@ async fn main() -> Result<()> {
 
     let args = CliArguments::parse();
     let config = AppConfig::load(args.config)?;
-    println!("{:?}", config);
 
     let handles = AppState::create(config).await?;
     match (handles.http_opt, handles.webhooks_opt) {

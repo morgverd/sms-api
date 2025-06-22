@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use futures::{stream, StreamExt};
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use anyhow::{bail, Context, Result};
 use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
 use crate::sms::types::SMSMessage;
 
@@ -15,7 +17,7 @@ const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone)]
 pub struct WebhookJob {
     pub event: ConfiguredWebhookEvent,
-    pub message: SMSMessage,
+    pub message: SMSMessage
 }
 
 #[derive(Clone)]
@@ -52,8 +54,10 @@ impl SMSWebhookManager {
     }
 }
 
+type StoredWebhook = (ConfiguredWebhook, Option<HeaderMap>);
+
 struct SMSWebhookWorker {
-    webhooks: Arc<[ConfiguredWebhook]>,
+    webhooks: Arc<[StoredWebhook]>,
     events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>>,
     job_receiver: mpsc::UnboundedReceiver<WebhookJob>,
     client: Client
@@ -72,13 +76,31 @@ impl SMSWebhookWorker {
         let client = Client::builder()
             .timeout(WEBHOOK_TIMEOUT)
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .unwrap_or_else(|e| {
+                error!("Could not build timeout HTTP client with error: {}", e);
+                Client::new()
+            });
 
         Self {
-            webhooks: webhooks.into(),
+
+            // Cache all webhook HeaderMaps now instead of re-creating each time.
+            webhooks: webhooks.into_iter()
+                .enumerate()
+                .map(|(idx, webhook)| {
+                    let headers = webhook.get_header_map()
+                        .unwrap_or_else(|e| {
+                            error!("Failed to create Webhook HeaderMap with error: {}", e);
+                            None
+                        });
+
+                    (webhook, headers)
+                })
+                .collect::<Vec<StoredWebhook>>()
+                .into(),
+
             events_map,
             job_receiver,
-            client,
+            client
         }
     }
 
@@ -105,12 +127,17 @@ impl SMSWebhookWorker {
                 let client = &self.client;
 
                 async move {
-                    let success = Self::execute_webhook(
-                        &client,
+                    let result = Self::execute_webhook(
                         webhook,
+                        &client,
                         &message,
                     ).await;
-                    debug!("Webhook #{} for task #{} {}!", webhook_idx, task_idx, if success { "was sent successfully" } else { "failed to send" });
+
+                    // TODO: Maybe re-queue failed webhooks?
+                    match result {
+                        Ok(()) => debug!("Webhook #{} for task #{} was sent successfully!", webhook_idx, task_idx),
+                        Err(e) => error!("Failed to send Webhook #{} for task #{} with error: {}", webhook_idx, task_idx, e)
+                    }
                 }
             })
             .buffer_unordered(CONCURRENCY_LIMIT)
@@ -119,42 +146,31 @@ impl SMSWebhookWorker {
     }
 
     async fn execute_webhook(
+        (webhook, headers): &StoredWebhook,
         client: &Client,
-        webhook: &ConfiguredWebhook,
-        message: &SMSMessage,
-    ) -> bool {
+        message: &SMSMessage
+    ) -> Result<()> {
         let mut request = client
             .post(&webhook.url)
             .json(message);
 
-        // Apply optional request headers.
-        match webhook.get_header_map() {
-            Ok(headers) => {
-                if let Some(headers) = headers {
-                    request = request.headers(headers);
-                }
-            },
-            Err(e) => {
-                error!("Could not create header map for webhook with error: {}", e);
-                return false;
-            }
+        if let Some(headers) = headers {
+            request = request.headers(headers.clone());
         }
 
-        // Send request and verify response status.
         debug!("Sending webhook to: {}", webhook.url);
-        match request.send().await {
-            Ok(response) => {
-                let status = response.status();
-                if let Some(expected) = webhook.expected_status {
-                    expected == status.as_u16()
-                } else {
-                    status.is_success()
-                }
-            },
-            Err(e) => {
-                warn!("Webhook request to {} failed with error: {}", webhook.url, e);
-                false
+        let response = request.send().await
+            .with_context(|| "Network error")?;
+
+        let status = response.status();
+        match webhook.expected_status {
+            Some(expected) if status.as_u16() != expected => {
+                bail!("Got {} expected {}!", status.as_u16(), expected);
             }
+            None if !status.is_success() => {
+                bail!("Unsuccessful status {}", status);
+            }
+            _ => Ok(())
         }
     }
 }
