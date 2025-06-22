@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::oneshot;
-use tokio::time::Instant;
 use anyhow::{anyhow, bail, Result};
 use log::{debug, error};
 use crate::modem::types::{ModemRequest, ModemResponse};
@@ -45,15 +44,13 @@ pub struct OutgoingCommand {
     pub sequence: u32,
     pub request: ModemRequest,
     response_tx: Option<oneshot::Sender<ModemResponse>>,
-    timestamp: Instant
 }
 impl OutgoingCommand {
     pub fn new(sequence: u32, request: ModemRequest, response_tx: oneshot::Sender<ModemResponse>) -> Self {
         Self {
             sequence,
             request,
-            response_tx: Some(response_tx),
-            timestamp: Instant::now(),
+            response_tx: Some(response_tx)
         }
     }
 

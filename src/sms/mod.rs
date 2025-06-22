@@ -1,7 +1,7 @@
 pub mod types;
+pub mod webhooks;
 mod database;
 mod encryption;
-mod webhooks;
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Result};
 use log::debug;
 use pdu_rs::gsm_encoding::GsmMessageData;
 use pdu_rs::pdu::{DataCodingScheme, MessageType, PduAddress, PduFirstOctet, SubmitPdu, TypeOfNumber, VpFieldValidity};
-use crate::config::{ConfiguredWebhookEvent, SMSConfig};
+use crate::config::{ConfiguredWebhookEvent, DatabaseConfig};
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
@@ -20,12 +20,15 @@ use crate::sms::webhooks::SMSWebhookManager;
 pub struct SMSManager {
     modem: ModemSender,
     database: Arc<SMSDatabase>,
-    webhooks: Option<Arc<SMSWebhookManager>>
+    webhooks: Option<SMSWebhookManager>
 }
 impl SMSManager {
-    pub async fn connect(config: SMSConfig, modem: ModemSender) -> Result<Self> {
-        let database = Arc::new(SMSDatabase::connect(&config).await?);
-        let webhooks = SMSWebhookManager::new(config.webhooks).map(Arc::new);
+    pub async fn connect(
+        config: DatabaseConfig,
+        modem: ModemSender,
+        webhooks: Option<SMSWebhookManager>
+    ) -> Result<Self> {
+        let database = Arc::new(SMSDatabase::connect(config).await?);
         Ok(Self { modem, database, webhooks })
     }
 
@@ -118,7 +121,7 @@ impl SMSManager {
             webhooks.send(
                 ConfiguredWebhookEvent::OutgoingMessage,
                 new_message.with_message_id(message_id_result.as_ref().ok().copied())
-            ).await;
+            );
         }
 
         match message_id_result {
@@ -136,7 +139,7 @@ impl SMSManager {
             webhooks.send(
                 ConfiguredWebhookEvent::IncomingMessage,
                 message.with_message_id(row_id.as_ref().ok().copied())
-            ).await;
+            );
         }
 
         row_id

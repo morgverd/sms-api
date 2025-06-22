@@ -16,6 +16,7 @@ use crate::http::create_app;
 use crate::modem::types::ModemIncomingMessage;
 use crate::modem::ModemManager;
 use crate::sms::SMSManager;
+use crate::sms::webhooks::SMSWebhookManager;
 
 macro_rules! tokio_select_with_logging {
     ($($name:expr => $handle:expr),+ $(,)?) => {
@@ -31,7 +32,8 @@ macro_rules! tokio_select_with_logging {
 struct AppHandles {
     modem: JoinHandle<()>,
     receiver: JoinHandle<()>,
-    http_opt: Option<JoinHandle<()>>
+    http_opt: Option<JoinHandle<()>>,
+    webhooks_opt: Option<JoinHandle<()>>
 }
 
 #[derive(Clone)]
@@ -43,25 +45,26 @@ impl AppState {
         let (mut modem, main_rx) = ModemManager::new(config.modem);
 
         // Start Modem task and get handle to join with HTTP server.
-        let modem_handle = match modem.start().await {
-            Ok(handle) => handle,
+        let (modem_handle, modem_sender) = match modem.start().await {
+            Ok(handle) => (handle, modem.get_sender()?),
             Err(e) => bail!("Failed to start ModemManager: {}", e)
         };
 
-        // Create shared ModemManager.
-        let modem_sender = modem.get_sender()?;
+        // Create webhook manager here to get its reader handle.
+        let (webhooks_manager, webhooks_handle) = SMSWebhookManager::new(config.webhooks).unzip();
         let sms_manager = Arc::new(
-            SMSManager::connect(config.sms, modem_sender).await?
+            SMSManager::connect(config.database, modem_sender, webhooks_manager).await?
         );
 
         let handles = AppHandles {
             modem: modem_handle,
             receiver: Self::create_receiver(sms_manager.clone(), main_rx),
             http_opt: Self::try_create_http(sms_manager.clone(), config.http),
+            webhooks_opt: webhooks_handle
         };
         Ok(handles)
     }
-    
+
     fn create_receiver(
         sms_manager: Arc<SMSManager>,
         mut main_rx: UnboundedReceiver<ModemIncomingMessage>
@@ -136,14 +139,24 @@ async fn main() -> Result<()> {
     println!("{:?}", config);
 
     let handles = AppState::create(config).await?;
-    if let Some(http_handle) = handles.http_opt {
-        tokio_select_with_logging! {
+    match (handles.http_opt, handles.webhooks_opt) {
+        (Some(http), Some(webhooks)) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
             "Modem Receiver" => handles.receiver,
-            "HTTP Server" => http_handle
-        }
-    } else {
-        tokio_select_with_logging! {
+            "HTTP Server" => http,
+            "Webhooks Sender" => webhooks
+        },
+        (Some(http), None) => tokio_select_with_logging! {
+            "Modem Handler" => handles.modem,
+            "Modem Receiver" => handles.receiver,
+            "HTTP Server" => http
+        },
+        (None, Some(webhooks)) => tokio_select_with_logging! {
+            "Modem Handler" => handles.modem,
+            "Modem Receiver" => handles.receiver,
+            "Webhooks Sender" => webhooks
+        },
+        (None, None) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
             "Modem Receiver" => handles.receiver
         }
