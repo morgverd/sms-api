@@ -14,9 +14,9 @@ pub struct SMSDatabase {
     encryption: SMSEncryption
 }
 impl SMSDatabase {
-    pub async fn connect(config: SMSConfig) -> Result<Self> {
+    pub async fn connect(config: &SMSConfig) -> Result<Self> {
         let connection_options = SqliteConnectOptions::new()
-            .filename(config.database_url)
+            .filename(config.database_url.clone())
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
@@ -61,7 +61,7 @@ impl SMSDatabase {
         Ok(())
     }
     
-    pub async fn insert_message(&self, message: SMSMessage, is_final: bool) -> Result<i64> {
+    pub async fn insert_message(&self, message: &SMSMessage, is_final: bool) -> Result<i64> {
         let encrypted_content = self.encryption.encrypt(&*message.message_content)?;
         let result = if is_final {
             sqlx::query(
@@ -72,11 +72,11 @@ impl SMSDatabase {
                 "INSERT INTO messages (phone_number, message_content, message_reference, is_outgoing, status) VALUES (?, ?, ?, ?, ?)"
             )
         }
-            .bind(message.phone_number)
+            .bind(&message.phone_number)
             .bind(encrypted_content)
             .bind(message.message_reference)
             .bind(message.is_outgoing)
-            .bind(u8::from(message.status))
+            .bind(u8::from(&message.status))
             .execute(&self.pool)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -124,7 +124,7 @@ impl SMSDatabase {
         Ok(result)
     }
 
-    pub async fn update_message_status(&self, message_id: i64, status: SMSStatus, completed: bool) -> Result<()> {
+    pub async fn update_message_status(&self, message_id: i64, status: &SMSStatus, completed: bool) -> Result<()> {
         let query = if completed {
             sqlx::query(
                 "UPDATE messages SET status = ?, completed_at = unixepoch() WHERE message_id = ?"

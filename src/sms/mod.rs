@@ -1,6 +1,7 @@
 pub mod types;
 mod database;
 mod encryption;
+mod webhooks;
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -8,21 +9,24 @@ use anyhow::{anyhow, bail, Result};
 use log::debug;
 use pdu_rs::gsm_encoding::GsmMessageData;
 use pdu_rs::pdu::{DataCodingScheme, MessageType, PduAddress, PduFirstOctet, SubmitPdu, TypeOfNumber, VpFieldValidity};
-use crate::config::SMSConfig;
+use crate::config::{ConfiguredWebhookEvent, SMSConfig};
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessage, SMSOutgoingMessage, SMSStatus};
+use crate::sms::webhooks::SMSWebhookManager;
 
 #[derive(Clone)]
 pub struct SMSManager {
     modem: ModemSender,
-    database: Arc<SMSDatabase>
+    database: Arc<SMSDatabase>,
+    webhooks: Option<Arc<SMSWebhookManager>>
 }
 impl SMSManager {
-    pub async fn new(config: SMSConfig, modem: ModemSender) -> Result<Self> {
-        let database = Arc::new(SMSDatabase::connect(config).await?);
-        Ok(Self { modem, database })
+    pub async fn connect(config: SMSConfig, modem: ModemSender) -> Result<Self> {
+        let database = Arc::new(SMSDatabase::connect(&config).await?);
+        let webhooks = SMSWebhookManager::new(config.webhooks).map(Arc::new);
+        Ok(Self { modem, database, webhooks })
     }
 
     fn create_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
@@ -85,31 +89,57 @@ impl SMSManager {
         };
         debug!("SMSManager last_response: {:?}", last_response);
 
-        let (storage_message, send_failure) = match &last_response {
+        let mut new_message = SMSMessage::from(message);
+        let send_failure = match &last_response {
             ModemResponse::SendResult { reference_id } => {
-                let mut new_message = SMSMessage::from(message);
                 new_message.message_reference.replace(*reference_id);
-                (new_message, None)
+                None
             },
             ModemResponse::Error { message: error_message } => {
-                let mut new_message = SMSMessage::from(message);
                 new_message.status = SMSStatus::PermanentFailure;
-                (new_message, Some(error_message))
+                Some(error_message)
             },
             _ => bail!("Got invalid ModemResponse back from sending SMS message!")
         };
 
         // Store sent message + send failure in database.
-        let message_id = self.database.insert_message(storage_message, send_failure.is_some()).await?;
-        if let Some(error_message) = send_failure {
-            let _ = self.database.insert_send_failure(message_id, error_message.to_owned());
+        let message_id_result = match self.database.insert_message(&new_message, send_failure.is_some()).await {
+            Ok(row_id) => {
+                if let Some(failure) = send_failure {
+                    let _ = self.database.insert_send_failure(row_id, failure.to_owned());
+                }
+                Ok(row_id)
+            },
+            Err(e) => Err(e)
+        };
+
+        // Send outgoing message webhook event.
+        if let Some(webhooks) = &self.webhooks {
+            webhooks.send(
+                ConfiguredWebhookEvent::OutgoingMessage,
+                new_message.with_message_id(message_id_result.as_ref().ok().copied())
+            ).await;
         }
 
-        Ok((message_id, last_response))
+        match message_id_result {
+            Ok(message_id) => Ok((message_id, last_response)),
+            Err(e) => Err(e)
+        }
     }
 
-    pub async fn handle_incoming_sms(&self, message: SMSIncomingMessage) -> Result<i64> {
-        self.database.insert_message(SMSMessage::from(message), false).await
+    pub async fn handle_incoming_sms(&self, incoming_message: SMSIncomingMessage) -> Result<i64> {
+        let message = SMSMessage::from(incoming_message);
+        let row_id = self.database.insert_message(&message, false).await;
+
+        // Send incoming message webhook event.
+        if let Some(webhooks) = &self.webhooks {
+            webhooks.send(
+                ConfiguredWebhookEvent::IncomingMessage,
+                message.with_message_id(row_id.as_ref().ok().copied())
+            ).await;
+        }
+
+        row_id
     }
 
     pub async fn handle_delivery_report(&self, report: SMSIncomingDeliveryReport) -> Result<i64> {
@@ -122,10 +152,10 @@ impl SMSManager {
         };
 
         let is_final = report.status.is_success() || report.status.is_permanent_error();
-        let status = u8::from(SMSStatus::from(report.status));
+        let status = u8::from(&SMSStatus::from(report.status));
 
         self.database.insert_delivery_report(message_id, status, is_final).await?;
-        self.database.update_message_status(message_id, report.status.into(), is_final).await?;
+        self.database.update_message_status(message_id, &report.status.into(), is_final).await?;
 
         Ok(message_id)
     }

@@ -5,7 +5,7 @@ use sqlx::FromRow;
 
 pub type SMSEncryptionKey = [u8; 32];
 
-#[derive(Serialize, Debug, sqlx::FromRow)]
+#[derive(Serialize, Deserialize, Clone, Debug, sqlx::FromRow)]
 pub struct SMSMessage {
     pub message_id: Option<i64>,
     pub phone_number: String,
@@ -15,6 +15,16 @@ pub struct SMSMessage {
     pub status: SMSStatus,
     pub created_at: Option<u64>,
     pub completed_at: Option<u64>
+}
+impl SMSMessage {
+
+    /// Returns a clone of the message with the message_id option replaced.
+    pub fn with_message_id(&self, id: Option<i64>) -> Self {
+        SMSMessage {
+            message_id: id,
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -57,7 +67,7 @@ impl From<SMSIncomingMessage> for SMSMessage {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum SMSStatus {
     Sent,
     Delivered,
@@ -65,8 +75,8 @@ pub enum SMSStatus {
     TemporaryFailure,
     PermanentFailure
 }
-impl From<SMSStatus> for u8 {
-    fn from(status: SMSStatus) -> Self {
+impl From<&SMSStatus> for u8 {
+    fn from(status: &SMSStatus) -> Self {
         match status {
             SMSStatus::Sent => 0,
             SMSStatus::Delivered => 1,

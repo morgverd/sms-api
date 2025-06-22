@@ -1,95 +1,167 @@
+use std::collections::HashMap;
+use std::fs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
-use anyhow::Result;
-use dotenv::dotenv;
+use anyhow::{Context, Result};
+use axum::http::HeaderValue;
+use base64::Engine;
+use base64::engine::general_purpose;
+use reqwest::header::{HeaderMap, HeaderName};
+use serde::Deserialize;
 
-macro_rules! env_config {
-    // Required field
-    ($field_name:ident: $field_type:ty, $env_var:literal) => {
-        (|| -> anyhow::Result<$field_type> {
-            std::env::var($env_var)
-                .map_err(|_| anyhow::anyhow!("Required environment variable '{}' is missing", $env_var))
-                .and_then(|v| v.parse::<$field_type>()
-                    .map_err(|e| anyhow::anyhow!("Failed to parse '{}' as {}: {}", $env_var, stringify!($field_type), e)))
-        })()
-    };
-
-    // Optional field with default
-    ($field_name:ident: $field_type:ty, $env_var:literal, $default:expr) => {
-        (|| -> anyhow::Result<$field_type> {
-            match std::env::var($env_var) {
-                Ok(v) => v.parse::<$field_type>()
-                    .map_err(|e| anyhow::anyhow!("Failed to parse '{}' as {}: {}", $env_var, stringify!($field_type), e)),
-                Err(_) => Ok($default)
-            }
-        })()
-    };
-}
-
+#[derive(Debug, Deserialize)]
 pub struct AppConfig {
+    pub sms: SMSConfig,
+    pub sentry: Option<SentryConfig>,
+
+    #[serde(default)]
     pub modem: ModemConfig,
-    pub sms: SMSConfig
+
+    #[serde(default)]
+    pub http: HTTPConfig
 }
+
 impl AppConfig {
-    pub fn load_from_env() -> Result<Self> {
-        dotenv().ok();
-        Ok(Self {
-            modem: ModemConfig::from_env()?,
-            sms: SMSConfig::from_env()?
-        })
+    pub fn load(config_filepath: Option<PathBuf>) -> Result<Self> {
+        let config_path = config_filepath
+            .unwrap_or_else(|| PathBuf::from("config.yaml"));
+
+        let config_content = fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+
+        let config: AppConfig = serde_yaml::from_str(&config_content)
+            .with_context(|| format!("Failed to parse YAML config file: {:?}", config_path))?;
+
+        Ok(config)
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ModemConfig {
+    #[serde(default = "default_modem_device")]
     pub device: String,
+
+    #[serde(default = "default_modem_baud")]
     pub baud: u32,
 
     /// The read_interval is basically the key indicator of HTTP response speed.
     /// On average the modem responds within 20-30ms to a basic query.
     /// Lower value = more reads = higher CPU usage.
+    #[serde(default = "default_modem_read_interval")]
+    #[serde(deserialize_with = "deserialize_duration_from_millis")]
     pub read_interval_duration: Duration,
 
     /// The size of Command bounded mpsc sender, should be low. eg: 32
+    #[serde(default = "default_modem_cmd_buffer_size")]
     pub cmd_channel_buffer_size: usize
 }
-impl ModemConfig {
-    pub fn from_env() -> Result<Self> {
-        Ok(Self {
-            device: env_config!(device: String, "SMS_MODEM_DEVICE", "/dev/ttyS0".to_string())?,
-            baud: env_config!(baud: u32, "SMS_MODEM_BAUD", 115200)?,
-            read_interval_duration: {
-                let millis: u64 = env_config!(read_interval_ms: u64, "SMS_MODEM_READ_INTERVAL_MS", 25)?;
-                Duration::from_millis(millis)
-            },
-            cmd_channel_buffer_size: env_config!(cmd_channel_buffer_size: usize, "SMS_MODEM_CMD_CHANNEL_BUFFER_SIZE", 12)?
-        })
+impl Default for ModemConfig {
+    fn default() -> Self {
+        Self {
+            device: default_modem_device(),
+            baud: default_modem_baud(),
+            read_interval_duration: default_modem_read_interval(),
+            cmd_channel_buffer_size: default_modem_cmd_buffer_size()
+        }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 pub struct SMSConfig {
-    pub webhooks: Vec<ConfiguredWebhook>,
     pub database_url: String,
+
+    #[serde(default)]
+    pub webhooks: Option<Vec<ConfiguredWebhook>>,
+
+    #[serde(deserialize_with = "deserialize_encryption_key")]
     pub encryption_key: [u8; 32]
 }
-impl SMSConfig {
-    pub fn from_env() -> Result<Self> {
-        Ok(Self {
-            webhooks: Vec::new(),
-            database_url: env_config!(database_url: String, "SMS_DATABASE_URL")?,
 
-            // TODO: Load from some local key file instead of this hardcoded test key.
-            encryption_key: [
-                147, 203, 89, 45, 12, 178, 234, 67, 91, 156, 23, 88, 201, 142, 76, 39,
-                165, 118, 95, 212, 33, 184, 157, 72, 109, 246, 58, 131, 194, 85, 167, 29
-            ]
-        })
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfiguredWebhook {
+    pub url: String,
+    pub expected_status: Option<u16>,
+    pub events: Vec<ConfiguredWebhookEvent>,
+
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
+}
+impl ConfiguredWebhook {
+    pub fn get_header_map(&self) -> Result<Option<HeaderMap>> {
+        let map = if let Some(headers) = &self.headers { headers } else { return Ok(None); };
+
+        let mut out = HeaderMap::with_capacity(map.len());
+        for (k, v) in map {
+            out.insert(
+                HeaderName::from_str(k)?,
+                HeaderValue::from_str(v)?
+            );
+        }
+
+        Ok(Some(out))
     }
 }
 
-#[derive(Debug)]
-pub struct ConfiguredWebhook {
-    pub url: String,
-    pub header_name: String,
-    pub header_value: String
+#[derive(Eq, PartialEq, Hash, Debug, Clone, Copy, Deserialize)]
+pub enum ConfiguredWebhookEvent {
+    #[serde(rename = "incoming")]
+    IncomingMessage,
+
+    #[serde(rename = "outgoing")]
+    OutgoingMessage
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SentryConfig {
+    pub dsn: String
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HTTPConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_http_address")]
+    pub address: SocketAddr
+}
+impl Default for HTTPConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            address: default_http_address()
+        }
+    }
+}
+
+fn default_modem_device() -> String { "/dev/ttyS0".to_string() }
+fn default_modem_baud() -> u32 { 115200 }
+fn default_modem_read_interval() -> Duration { Duration::from_millis(30) }
+fn default_modem_cmd_buffer_size() -> usize { 32 }
+fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
+
+fn deserialize_duration_from_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let millis = u64::deserialize(deserializer)?;
+    Ok(Duration::from_millis(millis))
+}
+
+fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let decoded = general_purpose::STANDARD.decode(&s)
+        .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64 encryption key: {}", e)))?;
+
+    if decoded.len() != 32 {
+        return Err(serde::de::Error::custom(format!("Encryption key must be 32 bytes, got {}", decoded.len())));
+    }
+
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&decoded);
+    Ok(key)
 }
