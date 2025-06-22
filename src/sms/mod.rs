@@ -9,11 +9,11 @@ use anyhow::{anyhow, bail, Result};
 use log::debug;
 use pdu_rs::gsm_encoding::GsmMessageData;
 use pdu_rs::pdu::{DataCodingScheme, MessageType, PduAddress, PduFirstOctet, SubmitPdu, TypeOfNumber, VpFieldValidity};
-use crate::config::{ConfiguredWebhookEvent, DatabaseConfig};
+use crate::config::DatabaseConfig;
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessage, SMSOutgoingMessage, SMSStatus};
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessage, SMSOutgoingMessage, SMSStatus, WebhookEvent};
 use crate::sms::webhooks::SMSWebhookManager;
 
 #[derive(Clone)]
@@ -109,7 +109,7 @@ impl SMSManager {
         let message_id_result = match self.database.insert_message(&new_message, send_failure.is_some()).await {
             Ok(row_id) => {
                 if let Some(failure) = send_failure {
-                    let _ = self.database.insert_send_failure(row_id, failure.to_owned());
+                    let _ = self.database.insert_send_failure(row_id, failure);
                 }
                 Ok(row_id)
             },
@@ -118,10 +118,9 @@ impl SMSManager {
 
         // Send outgoing message webhook event.
         if let Some(webhooks) = &self.webhooks {
-            webhooks.send(
-                ConfiguredWebhookEvent::OutgoingMessage,
+            webhooks.send(WebhookEvent::OutgoingMessage(
                 new_message.with_message_id(message_id_result.as_ref().ok().copied())
-            );
+            ));
         }
 
         match message_id_result {
@@ -136,10 +135,9 @@ impl SMSManager {
 
         // Send incoming message webhook event.
         if let Some(webhooks) = &self.webhooks {
-            webhooks.send(
-                ConfiguredWebhookEvent::IncomingMessage,
+            webhooks.send(WebhookEvent::IncomingMessage(
                 message.with_message_id(row_id.as_ref().ok().copied())
-            );
+            ));
         }
 
         row_id
@@ -149,7 +147,7 @@ impl SMSManager {
 
         // Find the target message from phone number and message reference. This will be fine unless we send 255
         // messages to the client before they reply with delivery reports as then there's no way to properly track.
-        let message_id = match self.database.get_delivery_report_target_message(report.phone_number, report.reference_id).await? {
+        let message_id = match self.database.get_delivery_report_target_message(&report.phone_number, report.reference_id).await? {
             Some(message_id) => message_id,
             None => bail!("Could not find target message for delivery report!")
         };
@@ -157,8 +155,17 @@ impl SMSManager {
         let is_final = report.status.is_success() || report.status.is_permanent_error();
         let status = u8::from(&SMSStatus::from(report.status));
 
+        // Send delivery report webhook event.
+        let sms_status = SMSStatus::from(report.status);
+        if let Some(webhooks) = &self.webhooks {
+            webhooks.send(WebhookEvent::DeliveryReport {
+                message_id,
+                report
+            })
+        }
+
         self.database.insert_delivery_report(message_id, status, is_final).await?;
-        self.database.update_message_status(message_id, &report.status.into(), is_final).await?;
+        self.database.update_message_status(message_id, &sms_status, is_final).await?;
 
         Ok(message_id)
     }

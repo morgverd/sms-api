@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Error};
 use pdu_rs::pdu::MessageStatus;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
+use num_traits::cast::FromPrimitive;
+use crate::config::ConfiguredWebhookEvent;
 
 pub type SMSEncryptionKey = [u8; 32];
 
@@ -112,11 +114,30 @@ impl TryFrom<u8> for SMSStatus {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SMSIncomingDeliveryReport {
-    pub status: MessageStatus,
     pub phone_number: String,
-    pub reference_id: u8
+    pub reference_id: u8,
+
+    #[serde(serialize_with = "serialize_message_status")]
+    #[serde(deserialize_with = "deserialize_message_status")]
+    pub status: MessageStatus
+}
+
+fn serialize_message_status<S>(status: &MessageStatus, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_u8(*status as u8)
+}
+
+fn deserialize_message_status<'de, D>(deserializer: D) -> Result<MessageStatus, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = u8::deserialize(deserializer)?;
+    MessageStatus::from_u8(value)
+        .ok_or_else(|| serde::de::Error::custom(format!("Invalid MessageStatus value: 0x{:02x}", value)))
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -125,4 +146,25 @@ pub struct SMSDeliveryReport {
     pub status: u8,
     pub is_final: bool,
     pub created_at: Option<u64>
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WebhookEvent {
+    IncomingMessage(SMSMessage),
+    OutgoingMessage(SMSMessage),
+    DeliveryReport {
+        message_id: i64,
+        report: SMSIncomingDeliveryReport
+    }
+}
+impl WebhookEvent {
+
+    #[inline]
+    pub fn to_configured_event(&self) -> ConfiguredWebhookEvent {
+        match self {
+            WebhookEvent::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
+            WebhookEvent::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
+            WebhookEvent::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport
+        }
+    }
 }

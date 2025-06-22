@@ -113,7 +113,10 @@ pub enum ConfiguredWebhookEvent {
     IncomingMessage,
 
     #[serde(rename = "outgoing")]
-    OutgoingMessage
+    OutgoingMessage,
+
+    #[serde(rename = "delivery")]
+    DeliveryReport
 }
 
 #[derive(Debug, Deserialize)]

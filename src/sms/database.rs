@@ -84,7 +84,7 @@ impl SMSDatabase {
         Ok(result.last_insert_rowid())
     }
     
-    pub async fn insert_send_failure(&self, message_id: i64, error_message: String) -> Result<i64> {
+    pub async fn insert_send_failure(&self, message_id: i64, error_message: &String) -> Result<i64> {
         let result = sqlx::query(
             "INSERT INTO send_failures (message_id, error_message) VALUES (?, ?)"
         )
@@ -111,7 +111,7 @@ impl SMSDatabase {
         Ok(result.last_insert_rowid())
     }
 
-    pub async fn get_delivery_report_target_message(&self, phone_number: String, reference_id: u8) -> Result<Option<i64>> {
+    pub async fn get_delivery_report_target_message(&self, phone_number: &String, reference_id: u8) -> Result<Option<i64>> {
         let result = sqlx::query_scalar(
             "SELECT message_id FROM messages WHERE completed_at IS NULL AND is_outgoing = 1 AND phone_number = ? AND message_reference = ? ORDER BY message_id DESC LIMIT 1"
         )

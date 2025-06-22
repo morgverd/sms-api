@@ -9,20 +9,14 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use anyhow::{bail, Context, Result};
 use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
-use crate::sms::types::SMSMessage;
+use crate::sms::types::WebhookEvent;
 
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Clone)]
-pub struct WebhookJob {
-    pub event: ConfiguredWebhookEvent,
-    pub message: SMSMessage
-}
-
 #[derive(Clone)]
 pub struct SMSWebhookManager {
-    job_sender: mpsc::UnboundedSender<WebhookJob>,
+    event_sender: mpsc::UnboundedSender<WebhookEvent>,
 }
 impl SMSWebhookManager {
     pub fn new(webhooks: Option<Vec<ConfiguredWebhook>>) -> Option<(Self, JoinHandle<()>)> {
@@ -36,19 +30,18 @@ impl SMSWebhookManager {
 
         // Use an unbounded channel to ensure no webhooks are ever dropped.
         // The modem command channel is bound, so we should be fine from API spam.
-        let (job_sender, job_receiver) = mpsc::unbounded_channel();
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
-            let worker = SMSWebhookWorker::new(webhooks, job_receiver);
+            let worker = SMSWebhookWorker::new(webhooks, event_receiver);
             worker.run().await;
         });
 
-        let manager = Self { job_sender };
+        let manager = Self { event_sender };
         Some((manager, handle))
     }
 
-    pub fn send(&self, event: ConfiguredWebhookEvent, message: SMSMessage) {
-        let job = WebhookJob { event, message };
-        if let Err(e) = self.job_sender.send(job) {
+    pub fn send(&self, event: WebhookEvent) {
+        if let Err(e) = self.event_sender.send(event) {
             error!("Failed to queue webhook job: {}", e);
         }
     }
@@ -59,11 +52,11 @@ type StoredWebhook = (ConfiguredWebhook, Option<HeaderMap>);
 struct SMSWebhookWorker {
     webhooks: Arc<[StoredWebhook]>,
     events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>>,
-    job_receiver: mpsc::UnboundedReceiver<WebhookJob>,
+    event_receiver: mpsc::UnboundedReceiver<WebhookEvent>,
     client: Client
 }
 impl SMSWebhookWorker {
-    fn new(webhooks: Vec<ConfiguredWebhook>, job_receiver: mpsc::UnboundedReceiver<WebhookJob>) -> Self {
+    fn new(webhooks: Vec<ConfiguredWebhook>, event_receiver: mpsc::UnboundedReceiver<WebhookEvent>) -> Self {
         let mut events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>> = HashMap::new();
         for (idx, webhook) in webhooks.iter().enumerate() {
             for event in &webhook.events {
@@ -89,7 +82,7 @@ impl SMSWebhookWorker {
                 .map(|(idx, webhook)| {
                     let headers = webhook.get_header_map()
                         .unwrap_or_else(|e| {
-                            error!("Failed to create Webhook HeaderMap with error: {}", e);
+                            error!("Failed to create Webhook #{} HeaderMap with error: {}", idx, e);
                             None
                         });
 
@@ -99,38 +92,38 @@ impl SMSWebhookWorker {
                 .into(),
 
             events_map,
-            job_receiver,
+            event_receiver,
             client
         }
     }
 
     async fn run(mut self) {
         info!("Starting webhook worker");
-        while let Some(job) = self.job_receiver.recv().await {
-            self.process_job(job).await;
+        while let Some(event) = self.event_receiver.recv().await {
+            self.process(event).await;
         }
     }
 
-    async fn process_job(&self, job: WebhookJob) {
-        let webhook_indices = match self.events_map.get(&job.event) {
+    async fn process(&self, event: WebhookEvent) {
+        let webhook_indices = match self.events_map.get(&event.to_configured_event()) {
             Some(indices) => indices.clone(),
             None => return
         };
 
-        let message = Arc::new(job.message);
+        let event = Arc::new(event);
         let webhooks = Arc::clone(&self.webhooks);
 
         stream::iter(webhook_indices.into_iter().enumerate())
             .map(|(task_idx, webhook_idx)| {
                 let webhook = &webhooks[webhook_idx];
-                let message = Arc::clone(&message);
+                let event = Arc::clone(&event);
                 let client = &self.client;
 
                 async move {
                     let result = Self::execute_webhook(
                         webhook,
                         &client,
-                        &message,
+                        &event
                     ).await;
 
                     // TODO: Maybe re-queue failed webhooks?
@@ -148,11 +141,11 @@ impl SMSWebhookWorker {
     async fn execute_webhook(
         (webhook, headers): &StoredWebhook,
         client: &Client,
-        message: &SMSMessage
+        event: &WebhookEvent
     ) -> Result<()> {
         let mut request = client
             .post(&webhook.url)
-            .json(message);
+            .json(event);
 
         if let Some(headers) = headers {
             request = request.headers(headers.clone());

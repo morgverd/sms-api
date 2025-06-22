@@ -2041,6 +2041,7 @@ dependencies = [
  "futures",
  "hex",
  "log",
+ "num-traits",
  "pdu-rs",
  "rand 0.9.1",
  "reqwest",
