@@ -29,13 +29,13 @@ pub struct AppConfig {
 impl AppConfig {
     pub fn load(config_filepath: Option<PathBuf>) -> Result<Self> {
         let config_path = config_filepath
-            .unwrap_or_else(|| PathBuf::from("config.yaml"));
+            .unwrap_or_else(|| PathBuf::from("config.toml"));
 
         let config_content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
 
-        let config: AppConfig = serde_yaml::from_str(&config_content)
-            .with_context(|| format!("Failed to parse YAML config file: {:?}", config_path))?;
+        let config: AppConfig = toml::from_str(&config_content)
+            .with_context(|| format!("Failed to parse TOML config file: {:?}", config_path))?;
 
         Ok(config)
     }

@@ -18,33 +18,32 @@ I use (and this project has only been tested with) a [Waveshare GSM Pi Hat](http
 Here is a simple configuration file that enables the HTTP API and specifies the modem device.
 The only truly required options here are the `database` fields.
 
-A full example with all annotated fields can be found [here](config.example.yaml).
+A full example with all annotated fields can be found [here](config.example.toml).
 
-> To use the config file, simply specify `./sms-api -c config.yaml`. See `./sms-api -h` for more information.
+> To use the config file, simply specify `./sms-api -c config.toml`. See `./sms-api -h` for more information.
 
-```yaml
+```toml
 # Specify the SQLite database path and encryption key used when storing/accessing message content.
-database:
-  database_url: /home/pi/sms-database.db
-  encryption_key: "aGVsbG9fdGhlcmVfaG93X2FyZV95b3VfdG9kYXk/Pz8="
+[database]
+database_url = "/home/pi/sms-database.db"
+encryption_key = "aGVsbG9fdGhlcmVfaG93X2FyZV95b3VfdG9kYXk/Pz8="
 
 # This is the default device, but it can be easily changed.
-modem:
-  device: /dev/ttyS0
+[modem]
+device = "/dev/ttyS0"
 
 # By default, the HTTP server is disabled.
-http:
-  enabled: true
+[http]
+enabled = true
 
 # Adds a webhook which will receive all events.
-webhooks:
-  - url: https://webhook.my-site.org
-    headers:
-      Authorization: hello
-    events:
-      - incoming
-      - outgoing
-      - delivery
+[[webhooks]]
+url = "https://webhook.my-site.org"
+events = ["incoming", "outgoing", "delivery"]
+
+# Custom authorization header for the webhook.
+[webhooks.headers]
+Authorization = "TokenHere"
 ```
 
 ## Todo
