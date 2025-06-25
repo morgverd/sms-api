@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub enum LineEvent {
     Line(String),
@@ -20,6 +19,11 @@ impl LineBuffer {
             buffer: String::new(),
             max_buffer_size: size,
         }
+    }
+
+    /// Clears the internal buffer. Should be called after timeouts.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
     }
 
     /// Consumes new data, splits it into lines and prompts, and returns events.

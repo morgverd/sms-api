@@ -72,15 +72,15 @@ impl ModemStateMachine {
         self.state = StateMachineState::Command(execution);
     }
 
-    pub async fn handle_command_timeout(&mut self) -> Result<()> {
+    pub async fn handle_command_timeout(&mut self) -> Result<bool> {
         let execution = match &self.state {
             StateMachineState::Command(execution) => execution,
-            _ => return Ok(())
+            _ => return Ok(false)
         };
         if !execution.is_timed_out() {
-            return Ok(());
+            return Ok(false);
         }
-        
+
         // Remove the CommandExecution from state to get OutgoingCommand.
         let mut command = match take(&mut self.state) {
             StateMachineState::Command(execution) => {
@@ -89,11 +89,11 @@ impl ModemStateMachine {
             }
             _ => unreachable!(),
         };
-        
+
         warn!("Command {} timed out!", command.sequence);
         command.respond(ModemResponse::Error {
             message: "Command timed out!".to_string()
-        }).await
+        }).await.map(|_| true)
     }
 
     pub async fn transition_state(
@@ -102,7 +102,7 @@ impl ModemStateMachine {
         main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
         port: &Arc<Mutex<SerialStream>>
     ) -> Result<()> {
-        
+
         // FIXME: REMOVE THESE LOGS!
         debug!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
         let modem_event = match line_event {
@@ -128,10 +128,10 @@ impl ModemStateMachine {
         match (take(&mut self.state), modem_event) {
 
             // Receive data for an unsolicited message, completing the state and returning
-            (StateMachineState::UnsolicitedMessage { message_type, header, interrupted_command }, ModemEvent::Data(content)) => {
+            (StateMachineState::UnsolicitedMessage { message_type, header, interrupted_command }, ModemEvent::Data(_)) => {
 
                 // Handle the unsolicited message data, sending the parsed ModemReceivedMessage back to main_tx.
-                match ModemEventHandlers::handle_unsolicited_message(&message_type, &header, &content).await {
+                match ModemEventHandlers::handle_unsolicited_message(&message_type, &header).await {
                     Ok(message) => if let Some(message) = message {
                         let _ = main_tx.send(message);
                     },

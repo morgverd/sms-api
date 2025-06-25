@@ -165,11 +165,20 @@ impl ModemManager {
                         }
                     }
                 },
-                
+
                 // Command timeout.
                 _ = timeout_interval.tick() => {
-                    if let Err(e) = state_machine.handle_command_timeout().await {
-                        error!("Error while handling command timeout: {:?}", e);
+                    let timed_out = state_machine.handle_command_timeout()
+                        .await
+                        .unwrap_or_else(|e| {
+
+                            // If the attempted timeout failed still clear buffer to be sure.
+                            error!("Error while handling command timeout: {:?}", e);
+                            true
+                        });
+
+                    if timed_out {
+                        line_buffer.clear();
                     }
                 }
             }
@@ -180,6 +189,7 @@ impl ModemManager {
         let mut response = Vec::new();
         let mut buf = [0u8; 1024];
 
+        let timeout = Duration::from_millis(50);
         tokio::time::timeout(
             Duration::from_secs(5),
             async {
@@ -199,8 +209,8 @@ impl ModemManager {
                                 break;
                             }
                         }
-                        Ok(_) => tokio::time::sleep(tokio::time::Duration::from_millis(50)).await,
-                        Err(_) => tokio::time::sleep(tokio::time::Duration::from_millis(50)).await,
+                        Ok(_) => tokio::time::sleep(timeout).await,
+                        Err(_) => tokio::time::sleep(timeout).await,
                     }
                 }
             }
