@@ -8,7 +8,7 @@ pub type JsonResult<T> = Result<Json<HttpResponse<T>>, (StatusCode, Json<HttpRes
 #[derive(Serialize)]
 pub struct HttpResponse<T> {
     pub success: bool,
-    pub data: Option<T>,
+    pub response: Option<T>,
     pub error: Option<String>,
 }
 

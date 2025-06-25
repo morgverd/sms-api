@@ -23,7 +23,7 @@ async fn get_modem_json_result(
         Err(e) => {
             return Ok(Json(HttpResponse {
                 success: false,
-                data: None,
+                response: None,
                 error: Some(e.to_string())
             }))
         }
@@ -31,7 +31,7 @@ async fn get_modem_json_result(
 
     Ok(Json(HttpResponse {
         success: true,
-        data: Some(response),
+        response: Some(response),
         error: None,
     }))
 }

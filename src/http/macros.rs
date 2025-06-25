@@ -32,14 +32,14 @@ macro_rules! http_post_handler {
             match inner($state, $payload).await {
                 Ok(data) => Ok(axum::Json(HttpResponse {
                     success: true,
-                    data: Some(data),
+                    response: Some(data),
                     error: None
                 })),
                 Err(e) => Err((
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     axum::Json(HttpResponse {
                         success: false,
-                        data: None,
+                        response: None,
                         error: Some(e.to_string())
                     })
                 ))

@@ -25,6 +25,7 @@ impl ModemRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum ModemResponse {
     SendResult {
         reference_id: u8
@@ -90,7 +91,8 @@ pub enum ModemEvent {
 pub enum UnsolicitedMessageType {
     IncomingSMS,
     DeliveryReport,
-    NetworkStatusChange
+    NetworkStatusChange,
+    ShuttingDown
 }
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
@@ -101,7 +103,12 @@ impl UnsolicitedMessageType {
         } else if header.starts_with("+CGREG:") {
             Some(UnsolicitedMessageType::NetworkStatusChange)
         } else {
-            None
+            match header {
+                "NORMAL POWER DOWN" | "POWER DOWN" | "SHUTDOWN" | "POWERING DOWN" => {
+                    Some(UnsolicitedMessageType::ShuttingDown)
+                },
+                _ => None
+            }
         }
     }
 }
