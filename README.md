@@ -6,6 +6,7 @@ Send and receive SMS messages via a GSM modem.
 
 - Optional HTTP server to send modem operations and access database.
 - Handles SMS delivery reports, updating send status when received.
+- Allows unsolicited notifications to interrupt command execution for immediate updates.
 - HTTP webhook support for different events (incoming, outgoing, delivery).
 - **All incoming and outgoing SMS message content is stored encrypted.**
 - Provides [pdu-rs](https://github.com/morgverd/pdu-rs) crate for SMS PDU parsing.
@@ -16,6 +17,8 @@ Send and receive SMS messages via a GSM modem.
 
 Create a HTTP webhook server to accept `incoming` events and then send a ChatGPT generated reply with basic message history. This is probably a crime against humanity,
 and it shouldn't actually be used, but it's a good example of using webhooks in a workflow.
+
+> Which, to my knowledge, is the first ChatGPT SMS implementation running directly through a modem!
 
 ## Hardware
 
@@ -141,3 +144,5 @@ This event is from the carrier to report the delivery status of previously sent 
 - Make database message storage entirely optional?
 - Add API basic authentication.
 - Properly document API routes.
+- Finish Sentry integration including heartbeat monitor.
+- Re-initialize the modem after the first response is received following a SHUTDOWN notification.
