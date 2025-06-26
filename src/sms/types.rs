@@ -149,9 +149,15 @@ pub struct SMSDeliveryReport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
 pub enum WebhookEvent {
+    #[serde(rename = "incoming")]
     IncomingMessage(SMSMessage),
+
+    #[serde(rename = "outgoing")]
     OutgoingMessage(SMSMessage),
+
+    #[serde(rename = "delivery")]
     DeliveryReport {
         message_id: i64,
         report: SMSIncomingDeliveryReport
