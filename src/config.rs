@@ -3,7 +3,6 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::http::HeaderValue;
 use base64::Engine;
@@ -49,24 +48,24 @@ pub struct ModemConfig {
     #[serde(default = "default_modem_baud")]
     pub baud: u32,
 
-    /// The read_interval is basically the key indicator of HTTP response speed.
-    /// On average the modem responds within 20-30ms to a basic query.
-    /// Lower value = more reads = higher CPU usage.
-    #[serde(default = "default_modem_read_interval")]
-    #[serde(deserialize_with = "deserialize_duration_from_millis")]
-    pub read_interval_duration: Duration,
-
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
-    pub cmd_channel_buffer_size: usize
+    pub cmd_channel_buffer_size: usize,
+
+    #[serde(default = "default_modem_read_buffer_size")]
+    pub read_buffer_size: usize,
+
+    #[serde(default = "default_modem_read_buffer_size")]
+    pub line_buffer_size: usize
 }
 impl Default for ModemConfig {
     fn default() -> Self {
         Self {
             device: default_modem_device(),
             baud: default_modem_baud(),
-            read_interval_duration: default_modem_read_interval(),
-            cmd_channel_buffer_size: default_modem_cmd_buffer_size()
+            cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
+            read_buffer_size: default_modem_read_buffer_size(),
+            line_buffer_size: default_modem_read_buffer_size()
         }
     }
 }
@@ -143,18 +142,10 @@ impl Default for HTTPConfig {
 
 fn default_modem_device() -> String { "/dev/ttyS0".to_string() }
 fn default_modem_baud() -> u32 { 115200 }
-fn default_modem_read_interval() -> Duration { Duration::from_millis(30) }
 fn default_modem_cmd_buffer_size() -> usize { 32 }
+fn default_modem_read_buffer_size() -> usize { 4096 }
 fn default_webhook_events() -> Vec<ConfiguredWebhookEvent> { vec![ConfiguredWebhookEvent::IncomingMessage] }
 fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
-
-fn deserialize_duration_from_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let millis = u64::deserialize(deserializer)?;
-    Ok(Duration::from_millis(millis))
-}
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where

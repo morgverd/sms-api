@@ -15,13 +15,17 @@ device = "/dev/ttyS0"
 # The baud rate to use when creating device connection.
 baud = 115200
 
-# How many milliseconds between reads to the modem connection. This effectively determines the API response times.
-# Lower values mean a faster response, but with more CPU overhead. This should remain 20 to 60ms.
-read_interval_duration = 30
-
 # Buffer size for Modem command sender channel. This is bound to ensure that slow command responses don't result in
 # unexpected backpressure as we keep adding new commands to the queue. If the queue is full, API requests are rejected.
 cmd_channel_buffer_size = 32
+
+# Buffer size used for readign data from the serial port. This determines how much data can be read in a single operation,
+# larger values will improve throughput by reading more data per system call however it uses more memory.
+read_buffer_size = 4096
+
+# Buffer size for the maximum size that the internal buffer size can grow to before old data is discarded.
+# This determines how much data is kept for processing complte lines and large responses.
+line_buffer_size = 4096
 
 # HTTP Server Configuration.
 [http]

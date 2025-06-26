@@ -13,7 +13,7 @@ Send and receive SMS messages via a GSM modem.
 
 ## Examples
 
-### [ChatGPT SMS](./examples/chatgpt-sms/README.md)
+### [ChatGPT SMS](./examples/chatgpt-sms)
 
 Create a HTTP webhook server to accept `incoming` events and then send a ChatGPT generated reply with basic message history. This is probably a crime against humanity,
 and it shouldn't actually be used, but it's a good example of using webhooks in a workflow.
