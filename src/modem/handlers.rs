@@ -1,84 +1,80 @@
-use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use log::{debug, warn};
 use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
-use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
-use tokio_serial::SerialStream;
+use tokio::sync::mpsc;
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 use crate::modem::commands::CommandState;
+use crate::modem::worker::{WorkerEvent, ModemStatus};
 use crate::modem::types::{
     ModemRequest,
     ModemResponse,
     ModemIncomingMessage,
     UnsolicitedMessageType
 };
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
-pub struct ModemEventHandlers;
+pub struct ModemEventHandlers {
+    worker_event_tx: mpsc::UnboundedSender<WorkerEvent>,
+}
 impl ModemEventHandlers {
-
-    pub async fn command_sender(
-        port: &Arc<Mutex<SerialStream>>,
-        request: &ModemRequest
-    ) -> Result<CommandState> {
-        match request {
-            ModemRequest::SendSMS { len, .. } => {
-                {
-                    let mut port_guard = port.lock().await;
-                    port_guard.write_all(format!("AT+CMGS={}\r\n", len).as_bytes()).await?;
-                }
-                return Ok(CommandState::WaitingForPrompt);
-            }
-            ModemRequest::GetNetworkStatus => {
-                let mut port_guard = port.lock().await;
-                port_guard.write_all(b"AT+CREG?\r\n").await?;
-            }
-            ModemRequest::GetSignalStrength => {
-                let mut port_guard = port.lock().await;
-                port_guard.write_all(b"AT+CSQ\r\n").await?;
-            },
-            ModemRequest::GetNetworkOperator => {
-                let mut port_guard = port.lock().await;
-                port_guard.write_all(b"AT+COPS?\r\n").await?;
-            },
-            ModemRequest::GetServiceProvider => {
-                let mut port_guard = port.lock().await;
-                port_guard.write_all(b"AT+CSPN?\r\n").await?;
-            },
-            ModemRequest::GetBatteryLevel => {
-                let mut port_guard = port.lock().await;
-                port_guard.write_all(b"AT+CBC\r\n").await?;
-            }
-        }
-
-        Ok(CommandState::WaitingForData)
+    pub fn new(worker_event_tx: mpsc::UnboundedSender<WorkerEvent>) -> Self {
+        Self { worker_event_tx }
     }
 
-    pub async fn prompt_handler(
-        port: &Arc<Mutex<SerialStream>>,
-        request: &ModemRequest
-    ) -> Result<Option<CommandState>> {
+    pub async fn command_sender(&self, request: &ModemRequest) -> Result<CommandState> {
+        match request {
+            ModemRequest::SendSMS { len, .. } => {
+                let command = format!("AT+CMGS={}\r\n", len);
+                self.write(command.as_bytes()).await?;
+                Ok(CommandState::WaitingForPrompt)
+            }
+            ModemRequest::GetNetworkStatus => {
+                self.write(b"AT+CREG?\r\n").await?;
+                Ok(CommandState::WaitingForData)
+            }
+            ModemRequest::GetSignalStrength => {
+                self.write(b"AT+CSQ\r\n").await?;
+                Ok(CommandState::WaitingForData)
+            },
+            ModemRequest::GetNetworkOperator => {
+                self.write(b"AT+COPS?\r\n").await?;
+                Ok(CommandState::WaitingForData)
+            },
+            ModemRequest::GetServiceProvider => {
+                self.write(b"AT+CSPN?\r\n").await?;
+                Ok(CommandState::WaitingForData)
+            },
+            ModemRequest::GetBatteryLevel => {
+                self.write(b"AT+CBC\r\n").await?;
+                Ok(CommandState::WaitingForData)
+            }
+        }
+    }
+
+    pub async fn prompt_handler(&self, request: &ModemRequest) -> Result<Option<CommandState>> {
         if let ModemRequest::SendSMS { len, pdu } = request {
             debug!("Sending PDU: len = {}", len);
-            {
-                let mut port_guard = port.lock().await;
-                port_guard.write_all(pdu.as_bytes()).await?;
-                port_guard.write_all(b"\x1A").await?;
-            }
-            return Ok(Some(CommandState::WaitingForOk))
+
+            // Push CTRL+Z to end of PDU to submit.
+            let mut buf = Vec::with_capacity(pdu.as_bytes().len() + 1);
+            buf.extend_from_slice(pdu.as_bytes());
+            buf.push(0x1A);
+            self.write(&buf).await?;
+
+            return Ok(Some(CommandState::WaitingForOk));
         }
 
         Ok(None)
     }
 
     pub async fn handle_unsolicited_message(
+        &self,
         message_type: &UnsolicitedMessageType,
         content: &str
     ) -> Result<Option<ModemIncomingMessage>> {
+        debug!("UnsolicitedMessage: {:?} -> {:?}", &message_type, &content);
+
         match message_type {
             UnsolicitedMessageType::IncomingSMS => {
-
-                // Decode SMS_DELIVER PDU into an IncomingSMS.
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let deliver_pdu = DeliverPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
 
@@ -91,8 +87,6 @@ impl ModemEventHandlers {
                 Ok(Some(ModemIncomingMessage::IncomingSMS(incoming)))
             },
             UnsolicitedMessageType::DeliveryReport => {
-
-                // Decode SMS_STATUS_REPORT PDU into a DeliveryReport.
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let status_report_pdu = StatusReportPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
 
@@ -109,30 +103,25 @@ impl ModemEventHandlers {
                 }))
             },
             UnsolicitedMessageType::ShuttingDown => {
-
-                // TODO: Some IS_OFFLINE state should be updated, which blocks new API requests and creates a task
-                //  that sends periodic AT requests to check for a connection. Once re-connected the modem must be
-                //  re-initialized as it will echo requests etc.
                 warn!("The modem is shutting down!");
+                self.set_status(ModemStatus::ShuttingDown).await?;
                 Ok(None)
             }
         }
     }
 
     pub async fn command_responder(
+        &self,
         request: &ModemRequest,
         response: &String
     ) -> Result<ModemResponse> {
         debug!("Command response: {:?} -> {:?}", request, response);
-
-        // Validate response ends with OK
         if !response.trim_end().ends_with("OK") {
             return Err(anyhow!("Modem response does not end with OK"));
         }
 
         match request {
             ModemRequest::SendSMS { .. } => {
-                // Find the CMGS response line in the buffer
                 let cmgs_line = response
                     .lines()
                     .find(|line| line.trim().starts_with("+CMGS:"))
@@ -149,7 +138,6 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::SendResult { reference_id })
             },
             ModemRequest::GetNetworkStatus => {
-                // Find the CREG response line in the buffer
                 let creg_line = response
                     .lines()
                     .find(|line| line.trim().starts_with("+CREG:"))
@@ -179,7 +167,6 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::NetworkStatus { registration, technology })
             },
             ModemRequest::GetSignalStrength => {
-                // Find the CSQ response line in the buffer
                 let csq_line = response
                     .lines()
                     .find(|line| line.trim().starts_with("+CSQ:"))
@@ -209,7 +196,6 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::SignalStrength { rssi, ber })
             },
             ModemRequest::GetNetworkOperator => {
-                // Find the COPS response line in the buffer
                 let cops_line = response
                     .lines()
                     .find(|line| line.trim().starts_with("+COPS:"))
@@ -248,7 +234,6 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::NetworkOperator { status, format, operator })
             },
             ModemRequest::GetServiceProvider => {
-                // Find the CSPN response line in the buffer
                 let cspn_line = response
                     .lines()
                     .find(|line| line.trim().starts_with("+CSPN:"))
@@ -260,7 +245,7 @@ impl ModemEventHandlers {
                     .ok_or(anyhow!("Malformed CSPN response"))?
                     .trim();
 
-                // Find the quoted operator name
+                // Find the quoted operator name.
                 let quote_start = data.find('"').ok_or(anyhow!("Missing opening quote for operator name"))?;
                 let quote_end = data.rfind('"').ok_or(anyhow!("Missing closing quote for operator name"))?;
 
@@ -273,7 +258,6 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::ServiceProvider { operator })
             },
             ModemRequest::GetBatteryLevel => {
-                // Find the CBC response line in the buffer
                 let cbc_line = response
                     .lines()
                     .find(|line| line.trim().starts_with("+CBC:"))
@@ -307,10 +291,23 @@ impl ModemEventHandlers {
                     .parse()
                     .map_err(|_| anyhow!("Invalid battery voltage"))?;
 
-                // Convert milli-volts to volts.
                 let voltage: f32 = voltage_raw as f32 / 1000.0;
                 Ok(ModemResponse::BatteryLevel { status, charge, voltage })
             }
         }
+    }
+
+    async fn write(&self, data: &[u8]) -> Result<()> {
+        self.worker_event_tx
+            .send(WorkerEvent::WriteCommand(data.to_vec()))
+            .map_err(|_| anyhow!("Failed to send write command event"))?;
+        Ok(())
+    }
+
+    async fn set_status(&self, status: ModemStatus) -> Result<()> {
+        self.worker_event_tx
+            .send(WorkerEvent::SetStatus(status))
+            .map_err(|_| anyhow!("Failed to send status change event"))?;
+        Ok(())
     }
 }

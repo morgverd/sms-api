@@ -111,6 +111,14 @@ impl UnsolicitedMessageType {
             }
         }
     }
+
+    /// Check if the notification contains additional data on a new line.
+    pub fn has_next_line(&self) -> bool {
+        match self {
+            UnsolicitedMessageType::ShuttingDown => false,
+            _ => true
+        }
+    }
 }
 
 #[derive(Debug)]

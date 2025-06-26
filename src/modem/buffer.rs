@@ -5,70 +5,59 @@ pub enum LineEvent {
 }
 
 pub struct LineBuffer {
-    buffer: String,
+    buffer: Vec<u8>,
     max_buffer_size: usize,
 }
-
 impl LineBuffer {
-    pub fn new() -> Self {
-        Self::with_max_size(4096)
-    }
-
     pub fn with_max_size(size: usize) -> Self {
         Self {
-            buffer: String::new(),
+            buffer: Vec::with_capacity(512),
             max_buffer_size: size,
         }
     }
 
-    /// Clears the internal buffer. Should be called after timeouts.
     pub fn clear(&mut self) {
         self.buffer.clear();
     }
 
-    /// Consumes new data, splits it into lines and prompts, and returns events.
-    pub fn process_data(&mut self, data: &str) -> Vec<LineEvent> {
-        self.buffer.push_str(data);
+    pub fn process_data(&mut self, data: &[u8]) -> Vec<LineEvent> {
+        self.buffer.extend_from_slice(data);
 
         // Prevent unbounded growth.
         if self.buffer.len() > self.max_buffer_size {
+
             // Trim the oldest data, keeping only the most recent max_buffer_size bytes.
-            // This will probably break the message anyway, but better than a total reset?
             let keep_from = self.buffer.len().saturating_sub(self.max_buffer_size);
-            self.buffer = self.buffer[keep_from..].to_string();
+            self.buffer.drain(..keep_from);
         }
 
         let mut events = Vec::new();
         let mut start = 0;
-        let bytes = self.buffer.as_bytes();
         let mut i = 0;
 
-        while i < bytes.len() {
-            match bytes[i] {
+        while i < self.buffer.len() {
+            match self.buffer[i] {
                 b'\r' | b'\n' => {
                     if i > start {
-                        let content = &self.buffer[start..i];
-                        let trimmed = content.trim();
-                        if !trimmed.is_empty() {
-                            events.push(LineEvent::Line(trimmed.to_string()));
+                        if let Some(line_event) = self.try_create_event(&self.buffer[start..i], LineEvent::Line) {
+                            events.push(line_event);
                         }
                     }
+
                     // Skip all consecutive newlines.
-                    while i < bytes.len() && (bytes[i] == b'\r' || bytes[i] == b'\n') {
+                    while i < self.buffer.len() && (self.buffer[i] == b'\r' || self.buffer[i] == b'\n') {
                         i += 1;
                     }
                     start = i;
                 }
                 b'>' => {
-
                     // Only treat as prompt if it's at start of line or after whitespace.
                     let is_prompt = start == i
-                        || (i > 0 && (bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r'));
+                        || (i > 0 && (self.buffer[i - 1] == b'\n' || self.buffer[i - 1] == b'\r'));
+
                     if is_prompt {
-                        let content = &self.buffer[start..=i];
-                        let trimmed = content.trim();
-                        if !trimmed.is_empty() {
-                            events.push(LineEvent::Prompt(trimmed.to_string()));
+                        if let Some(prompt_event) = self.try_create_event(&self.buffer[start..=i], LineEvent::Prompt) {
+                            events.push(prompt_event);
                         }
                         i += 1;
                         start = i;
@@ -87,5 +76,32 @@ impl LineBuffer {
         }
 
         events
+    }
+
+    fn try_create_event<F>(&self, data: &[u8], constructor: F) -> Option<LineEvent>
+    where
+        F: FnOnce(String) -> LineEvent,
+    {
+        // Ignore if empty or whitespace only.
+        if data.is_empty() || data.iter().all(|&b| b.is_ascii_whitespace()) {
+            return None;
+        }
+
+        let content = match std::str::from_utf8(data) {
+            Ok(content) => content.trim(),
+            Err(_) => {
+                // Handle invalid UTF-8 gracefully - convert with replacement chars
+                return match String::from_utf8_lossy(data).trim() {
+                    trimmed if !trimmed.is_empty() => Some(constructor(trimmed.to_string())),
+                    _ => None,
+                };
+            }
+        };
+
+        if !content.is_empty() {
+            Some(constructor(content.to_string()))
+        } else {
+            None
+        }
     }
 }
