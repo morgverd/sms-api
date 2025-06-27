@@ -10,13 +10,14 @@ use axum::routing::post;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
-use tracing::{error, info, warn, instrument};
+use tokio::sync::{Mutex, mpsc};
+use tracing::{error, debug, warn, info, instrument};
+use dashmap::DashMap;
 
-const CHATGPT_MODEL: &str = "gpt-3.5-turbo";
-const HISTORY_LIMIT: usize = 10;
-const CHATGPT_TEMPERATURE: f32 = 0.7;
-const CHATGPT_SYSTEM_PROMPT: &str = "You are replying via SMS, so keep messages short and concise.";
+const CHATGPT_MODEL: &str = "gpt-4.1-mini";
+const HISTORY_LIMIT: usize = 20;
+const CHATGPT_TEMPERATURE: f32 = 0.8;
+const CHATGPT_SYSTEM_PROMPT: &str = "You are an SMS assistant named Dexter, Always reply in short, clear SMS-style messages—never write more than 2-3 sentences per reply. Keep your tone friendly, upbeat, and a little bit witty, like a helpful buddy. Use contractions, emojis (if appropriate), and text as real people do via SMS. Never use formal or overly technical language. No long explanations or paragraphs—keep it brief but helpful! Do not reference that you are an AI or digital assistant. Always sound personable and natural.";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +67,12 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(Debug)]
+struct MessageTask {
+    phone_number: String,
+    message_content: String,
+}
+
 #[derive(thiserror::Error, Debug)]
 enum AppError {
     #[error("OpenAI API error: {0}")]
@@ -85,7 +92,8 @@ struct AppState {
     message_history: Arc<Mutex<HashMap<String, VecDeque<ChatMessage>>>>,
     http_client: Client,
     sms_send_url: String,
-    openai_key: String
+    openai_key: String,
+    phone_queues: Arc<DashMap<String, mpsc::UnboundedSender<MessageTask>>>,
 }
 
 impl AppState {
@@ -99,8 +107,44 @@ impl AppState {
             message_history: Arc::new(Mutex::new(HashMap::new())),
             http_client,
             sms_send_url,
-            openai_key
+            openai_key,
+            phone_queues: Arc::new(DashMap::new()),
         }
+    }
+
+    async fn get_or_create_queue(&self, phone_number: &str) -> mpsc::UnboundedSender<MessageTask> {
+        // Use existing queue if one exists
+        if let Some(sender) = self.phone_queues.get(phone_number) {
+            return sender.clone();
+        }
+
+        // Create new queue for this phone number
+        let (tx, mut rx) = mpsc::unbounded_channel::<MessageTask>();
+        let phone_number_clone = phone_number.to_string();
+        let queues_ref = Arc::clone(&self.phone_queues);
+        let state_clone = self.clone();
+
+        // Insert the sender into the map
+        self.phone_queues.insert(phone_number.to_string(), tx.clone());
+
+        // Spawn worker task for this phone number
+        tokio::spawn(async move {
+            debug!("Started queue worker for phone number: {}", phone_number_clone);
+
+            while let Some(task) = rx.recv().await {
+                debug!("Processing queued message for {}", task.phone_number);
+
+                if let Err(e) = process_message(state_clone.clone(), task.phone_number.clone(), task.message_content).await {
+                    error!("Failed to process message for {}: {}", task.phone_number, e);
+                }
+            }
+
+            // Clean up the queue when the worker shuts down
+            debug!("Queue worker shutting down for: {}", phone_number_clone);
+            queues_ref.remove(&phone_number_clone);
+        });
+
+        tx
     }
 
     /// Adds a message to history and returns a snapshot of the current conversation.
@@ -152,7 +196,7 @@ impl AppState {
         };
 
         // Send chat completion request with history.
-        info!("Sending request to ChatGPT API");
+        debug!("Sending request to ChatGPT API");
 
         match self
             .http_client
@@ -168,7 +212,7 @@ impl AppState {
                     match response.json::<ChatGPTCompletionResponse>().await {
                         Ok(chat_response) => {
                             if let Some(choice) = chat_response.choices.first() {
-                                info!("Successfully received ChatGPT response");
+                                debug!("Successfully received ChatGPT response");
                                 Ok(choice.message.content.clone())
                             } else {
                                 Err(AppError::OpenAI("No choices in response".to_string()))
@@ -210,7 +254,7 @@ impl AppState {
         {
             Ok(response) => {
                 if response.status().is_success() {
-                    info!("Successfully sent reply to {}", phone_number);
+                    debug!("Successfully sent reply to {}", phone_number);
                     Ok(())
                 } else {
                     let status = response.status();
@@ -226,6 +270,17 @@ impl AppState {
         }
     }
 
+    /// Clears all message history for a phone number.
+    #[instrument(skip(self), fields(phone_number = %phone_number))]
+    async fn clear_history(&self, phone_number: &str) -> usize {
+        self.message_history
+            .lock()
+            .await
+            .remove(phone_number)
+            .map(|removed| removed.len())
+            .unwrap_or(0)
+    }
+
     /// Trims history to stay within limits.
     fn trim_history(messages: &mut VecDeque<ChatMessage>) {
         while messages.len() > HISTORY_LIMIT {
@@ -234,41 +289,27 @@ impl AppState {
     }
 }
 
-#[instrument(skip(state, payload))]
-async fn http_webhook(
-    State(state): State<AppState>,
-    Json(payload): Json<WebhookPayload>,
-) -> std::result::Result<StatusCode, (StatusCode, ResponseJson<ErrorResponse>)> {
-    if payload.webhook_type != "incoming" {
-        warn!("Received non-incoming webhook type: {}", payload.webhook_type);
-        return Err((
-            StatusCode::BAD_REQUEST,
-            ResponseJson(ErrorResponse {
-                error: "Invalid webhook type".to_string(),
-            }),
-        ));
-    }
-
-    let phone_number = payload.data.phone_number;
-    let message_content = payload.data.message_content.trim().to_string();
-
-    // Create a new task to send the reply so the response isn't blocked.
-    info!("Processing incoming message from {}", phone_number);
-    tokio::spawn(async move {
-        if let Err(e) = process_message(state, phone_number, message_content).await {
-            error!("Failed to process message: {}", e);
-        }
-    });
-
-    Ok(StatusCode::OK)
-}
-
 #[instrument(skip(state))]
 async fn process_message(
     state: AppState,
     phone_number: String,
     message_content: String,
 ) -> Result<()> {
+
+    // Check if this is a history clear command.
+    if message_content.trim() == "#" {
+        debug!("Received history clear command from {}", phone_number);
+
+        let count = state.clear_history(&phone_number).await;
+        let reply = format!("History cleared ({} messages)! Starting fresh.", count);
+
+        if let Err(e) = state.send_reply(phone_number, reply).await {
+            error!("Failed to send history clear confirmation: {}", e);
+            return Err(e);
+        }
+        return Ok(());
+    }
+
     // Store incoming message and get history.
     let incoming_message = ChatMessage {
         role: "user".to_string(),
@@ -302,6 +343,45 @@ async fn process_message(
     }
 
     Ok(())
+}
+
+#[instrument(skip(state, payload))]
+async fn http_webhook(
+    State(state): State<AppState>,
+    Json(payload): Json<WebhookPayload>,
+) -> std::result::Result<StatusCode, (StatusCode, ResponseJson<ErrorResponse>)> {
+    if payload.webhook_type != "incoming" {
+        warn!("Received non-incoming webhook type: {}", payload.webhook_type);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            ResponseJson(ErrorResponse {
+                error: "Invalid webhook type".to_string(),
+            }),
+        ));
+    }
+
+    let phone_number = payload.data.phone_number;
+    let message_content = payload.data.message_content.trim().to_string();
+    debug!("Received message from {}, queuing for processing", phone_number);
+
+    // Send task to queue for this number.
+    let sender = state.get_or_create_queue(&phone_number).await;
+    let task = MessageTask {
+        phone_number: phone_number.clone(),
+        message_content,
+    };
+    if let Err(_) = sender.send(task) {
+        error!("Failed to queue message for {}: receiver dropped", phone_number);
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ResponseJson(ErrorResponse {
+                error: "Failed to queue message".to_string(),
+            }),
+        ));
+    }
+
+    debug!("Message queued successfully for {}", phone_number);
+    Ok(StatusCode::OK)
 }
 
 #[tokio::main]
