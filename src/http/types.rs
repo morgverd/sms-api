@@ -15,21 +15,42 @@ pub struct HttpResponse<T> {
 #[derive(Deserialize)]
 pub struct PhoneNumberFetchRequest {
     pub phone_number: String,
-    pub limit: u64,
-    pub offset: u64
+
+    #[serde(default)]
+    pub limit: Option<u64>,
+
+    #[serde(default)]
+    pub offset: Option<u64>,
+
+    #[serde(default)]
+    pub reverse: bool
 }
 
 #[derive(Deserialize)]
 pub struct MessageIdFetchRequest {
     pub message_id: i64,
-    pub limit: u64,
-    pub offset: u64
+
+    #[serde(default)]
+    pub limit: Option<u64>,
+
+    #[serde(default)]
+    pub offset: Option<u64>,
+
+    #[serde(default)]
+    pub reverse: bool
 }
 
 #[derive(Deserialize)]
 pub struct GlobalFetchRequest {
-    pub limit: u64,
-    pub offset: u64
+
+    #[serde(default)]
+    pub limit: Option<u64>,
+
+    #[serde(default)]
+    pub offset: Option<u64>,
+
+    #[serde(default)]
+    pub reverse: bool
 }
 
 #[derive(Deserialize)]

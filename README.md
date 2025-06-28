@@ -118,7 +118,7 @@ This event is from the carrier to report the delivery status of previously sent 
 
 **Field Descriptions:**
 
-- *`report_id`** - Internal delivery report ID.
+- **`report_id`** - Internal delivery report ID.
 - **`message_id`** - Corresponds with `message_id` found in `outgoing` event.
 - **`status`** - The [TP-Status](https://www.etsi.org/deliver/etsi_ts/123000_123099/123040/16.00.00_60/ts_123040v160000p.pdf#page=71) as `u8`.
 - **`is_final`** - If no more delivery reports are expected.
@@ -138,6 +138,13 @@ This event is from the carrier to report the delivery status of previously sent 
 }
 ```
 
+## Limitations
+
+Things that need to be fixed before I can consider this project ready to be used in larger projects:
+- Multipart messages are received and stored individually opposed to as one large message.
+- Multipart messages only track delivery for the final part. This means that previous parts could fail,
+  meaning the end user wouldn't receive the message.
+
 ## Todo
 
 - Support both Postgres and SQLite as database options (or just Postgres).
@@ -145,4 +152,3 @@ This event is from the carrier to report the delivery status of previously sent 
 - Add API basic authentication.
 - Properly document API routes.
 - Finish Sentry integration including heartbeat monitor.
-- Re-initialize the modem after the first response is received following a SHUTDOWN notification.

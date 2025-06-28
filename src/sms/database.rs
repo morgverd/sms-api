@@ -9,6 +9,27 @@ use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSStatus};
 
 const SCHEMA_SQL: &str = include_str!("../schema.sql");
 
+fn build_pagination_query(
+    base_query: &str,
+    order_by: &str,
+    limit: Option<u64>,
+    offset: Option<u64>,
+    reverse: bool
+) -> String {
+    let order_direction = if reverse { "ASC" } else { "DESC" };
+    let mut query = format!("{} ORDER BY {} {}", base_query, order_by, order_direction);
+
+    if let Some(limit_val) = limit {
+        query.push_str(&format!(" LIMIT {}", limit_val));
+    }
+
+    if let Some(offset_val) = offset {
+        query.push_str(&format!(" OFFSET {}", offset_val));
+    }
+
+    query
+}
+
 pub struct SMSDatabase {
     pool: SqlitePool,
     encryption: SMSEncryption
@@ -145,12 +166,21 @@ impl SMSDatabase {
         Ok(())
     }
 
-    pub async fn get_latest_numbers(&self, limit: u64, offset: u64) -> Result<Vec<String>> {
-        let result: Vec<Option<String>> = sqlx::query_scalar(
-            "SELECT phone_number FROM messages GROUP BY phone_number ORDER BY MAX(created_at) DESC LIMIT ? OFFSET ?"
-        )
-            .bind(limit as i64)
-            .bind(offset as i64)
+    pub async fn get_latest_numbers(
+        &self,
+        limit: Option<u64>,
+        offset: Option<u64>,
+        reverse: bool
+    ) -> Result<Vec<String>> {
+        let query = build_pagination_query(
+            "SELECT phone_number FROM messages GROUP BY phone_number",
+            "MAX(created_at)",
+            limit,
+            offset,
+            reverse
+        );
+
+        let result: Vec<Option<String>> = sqlx::query_scalar(&query)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -161,15 +191,20 @@ impl SMSDatabase {
     pub async fn get_messages(
         &self,
         phone_number: &str,
-        limit: u64,
-        offset: u64
+        limit: Option<u64>,
+        offset: Option<u64>,
+        reverse: bool
     ) -> Result<Vec<SMSMessage>> {
-        let result = sqlx::query(
-            "SELECT message_id, phone_number, message_content, message_reference, is_outgoing, status, created_at, completed_at FROM messages WHERE phone_number = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        )
+        let query = build_pagination_query(
+            "SELECT message_id, phone_number, message_content, message_reference, is_outgoing, status, created_at, completed_at FROM messages WHERE phone_number = ?",
+            "created_at",
+            limit,
+            offset,
+            reverse
+        );
+
+        let result = sqlx::query(&query)
             .bind(phone_number)
-            .bind(limit as i64)
-            .bind(offset as i64)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| anyhow!(e))?;
@@ -193,15 +228,20 @@ impl SMSDatabase {
     pub async fn get_delivery_reports(
         &self,
         message_id: i64,
-        limit: u64,
-        offset: u64
+        limit: Option<u64>,
+        offset: Option<u64>,
+        reverse: bool
     ) -> Result<Vec<SMSDeliveryReport>> {
-        sqlx::query_as(
-            "SELECT report_id, message_id, status, is_final, created_at FROM delivery_reports WHERE message_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        )
+        let query = build_pagination_query(
+            "SELECT report_id, message_id, status, is_final, created_at FROM delivery_reports WHERE message_id = ?",
+            "created_at",
+            limit,
+            offset,
+            reverse
+        );
+
+        sqlx::query_as(&query)
             .bind(message_id)
-            .bind(limit as i64)
-            .bind(offset as i64)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| anyhow!(e))

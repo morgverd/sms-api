@@ -11,18 +11,7 @@ http_post_handler!(
     Vec<SMSMessage>,
     |state, payload| {
         state.sms_manager.borrow_database()
-            .get_messages(&payload.phone_number, payload.limit, payload.offset)
-            .await
-    }
-);
-
-http_post_handler!(
-    db_latest_numbers,
-    GlobalFetchRequest,
-    Vec<String>,
-    |state, payload| {
-        state.sms_manager.borrow_database()
-            .get_latest_numbers(payload.limit, payload.offset)
+            .get_messages(&payload.phone_number, payload.limit, payload.offset, payload.reverse)
             .await
     }
 );
@@ -33,7 +22,24 @@ http_post_handler!(
     Vec<SMSDeliveryReport>,
     |state, payload| {
         state.sms_manager.borrow_database()
-            .get_delivery_reports(payload.message_id, payload.limit, payload.offset)
+            .get_delivery_reports(payload.message_id, payload.limit, payload.offset, payload.reverse)
+            .await
+    }
+);
+
+/// Since every field is optional, the request payload is too.
+http_post_handler!(
+    db_latest_numbers,
+    Option<GlobalFetchRequest>,
+    Vec<String>,
+    |state, payload| {
+        let (limit, offset, reverse) = match payload {
+            Some(req) => (req.limit, req.offset, req.reverse),
+            None => (None, None, false),
+        };
+
+        state.sms_manager.borrow_database()
+            .get_latest_numbers(limit, offset, reverse)
             .await
     }
 );
