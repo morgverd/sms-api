@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use log::{debug, warn};
 use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::sync::mpsc;
@@ -78,12 +78,17 @@ impl ModemEventHandlers {
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let deliver_pdu = DeliverPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
 
-                let incoming = SMSIncomingMessage {
-                    phone_number: deliver_pdu.originating_address.to_string(),
-                    content: deliver_pdu.get_message_data()
-                        .decode_message()
-                        .map_err(|e| anyhow!(e))?.text
+                // Decode incoming message data to get user data header which is required for multipart messages.
+                let phone_number = deliver_pdu.originating_address.to_string();
+                let incoming = match deliver_pdu.get_message_data().decode_message() {
+                    Ok(msg) => SMSIncomingMessage {
+                        phone_number,
+                        user_data_header: msg.udh,
+                        content: msg.text
+                    },
+                    Err(e) => bail!("Failed to parse incoming SMS data: {:?}", e)
                 };
+
                 Ok(Some(ModemIncomingMessage::IncomingSMS(incoming)))
             },
             UnsolicitedMessageType::DeliveryReport => {

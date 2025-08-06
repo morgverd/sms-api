@@ -15,7 +15,7 @@ use crate::config::{AppConfig, HTTPConfig};
 use crate::http::create_app;
 use crate::modem::types::ModemIncomingMessage;
 use crate::modem::ModemManager;
-use crate::sms::SMSManager;
+use crate::sms::{SMSManager, SMSReceiver};
 use crate::sms::webhooks::SMSWebhookManager;
 
 macro_rules! tokio_select_with_logging {
@@ -71,18 +71,21 @@ impl AppState {
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             info!("Started ModemIncomingMessage reciever");
+
+            let mut receiver = SMSReceiver::new(sms_manager);
             while let Some(message) = main_rx.recv().await {
                 debug!("AppState modem_receiver: {:?}", message);
 
                 match message {
                     ModemIncomingMessage::IncomingSMS(incoming) => {
-                        match sms_manager.handle_incoming_sms(incoming).await {
-                            Ok(row_id) => debug!("Stored SMSIncomingMessage #{}", row_id),
-                            Err(e) => error!("Failed to store SMSIncomingMessage with error: {:?}", e)
+                        match receiver.handle_incoming_sms(incoming).await {
+                            Some(Ok(row_id)) => debug!("Stored SMSIncomingMessage #{}", row_id),
+                            Some(Err(e)) => error!("Failed to store SMSIncomingMessage with error: {:?}", e),
+                            None => debug!("Not storing SMSIncomingMessage as it is apart of a multipart message.")
                         }
                     },
                     ModemIncomingMessage::DeliveryReport(report) => {
-                        match sms_manager.handle_delivery_report(report).await {
+                        match receiver.handle_delivery_report(report).await {
                             Ok(message_id) => debug!("Updated delivery report status for message #{}", message_id),
                             Err(e) => error!("Failed to update message delivery report with error: {:?}", e)
                         }

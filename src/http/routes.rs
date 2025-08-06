@@ -27,7 +27,6 @@ http_post_handler!(
     }
 );
 
-/// Since every field is optional, the request payload is too.
 http_post_handler!(
     db_latest_numbers,
     Option<GlobalFetchRequest>,

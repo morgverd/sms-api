@@ -1,8 +1,11 @@
-use anyhow::{anyhow, Error};
+use anyhow::{anyhow, Result, Error};
+use log::debug;
 use pdu_rs::pdu::MessageStatus;
+use pdu_rs::gsm_encoding::udh::UserDataHeader;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
 use num_traits::cast::FromPrimitive;
+use tokio::time::Instant;
 use crate::config::ConfiguredWebhookEvent;
 
 pub type SMSEncryptionKey = [u8; 32];
@@ -50,9 +53,96 @@ impl From<SMSOutgoingMessage> for SMSMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct SMSMultipartMessages {
+    pub total_size: usize,
+    pub last_updated: Option<Instant>,
+    pub first_message: Option<SMSIncomingMessage>,
+    pub text_len: usize,
+    pub text_parts: Vec<Option<String>>,
+    pub received_count: usize,
+}
+impl SMSMultipartMessages {
+    pub fn with_capacity(total_size: usize) -> Self {
+        Self {
+            total_size,
+            last_updated: None,
+            first_message: None,
+            text_len: 0,
+            text_parts: vec![None; total_size],
+            received_count: 0
+        }
+    }
+
+    pub fn add_message(&mut self, message: SMSIncomingMessage, index: u8) -> bool {
+        self.last_updated = Some(Instant::now());
+        if self.first_message.is_none() {
+            self.first_message = Some(message.clone());
+        }
+
+        // Make multipart index 0-based.
+        let idx = (index as usize).saturating_sub(1);
+        if idx < self.text_parts.len() && self.text_parts[idx].is_none() {
+            self.text_len += message.content.len();
+            self.text_parts[idx] = Some(message.content);
+            self.received_count += 1;
+        }
+
+        debug!("Received Multipart SMS Count: {:?} | Max: {:?}", self.received_count, self.total_size);
+        self.received_count >= self.total_size
+    }
+
+    pub fn compile(&self) -> Result<SMSMessage> {
+        let first_message = match &self.first_message {
+            Some(first_message) => first_message,
+            None => return Err(anyhow!("Missing required first message to convert into SMSMessage!"))
+        };
+
+        let mut content = String::with_capacity(self.text_len);
+        for msg_opt in &self.text_parts {
+            if let Some(text) = msg_opt {
+                content.push_str(&text);
+            }
+        }
+
+        let mut message = SMSMessage::from(first_message.clone());
+        message.message_content = content;
+
+        Ok(message)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SMSMultipartHeader {
+    pub message_reference: u8,
+    pub total: u8,
+    pub index: u8
+}
+
+#[derive(Debug, Clone)]
 pub struct SMSIncomingMessage {
     pub phone_number: String,
+    pub user_data_header: Option<UserDataHeader>,
     pub content: String
+}
+impl SMSIncomingMessage {
+    pub fn decode_multipart_data(&self) -> Option<Result<SMSMultipartHeader>> {
+
+        // Find header component with multipart ID.
+        let component = self.user_data_header.as_ref()?
+            .components
+            .iter()
+            .find(|c| c.id == 0x00)?;
+
+        if component.data.len() != 3 {
+            return Some(Err(anyhow!("Invalid multipart header length!")));
+        }
+
+        Some(Ok(SMSMultipartHeader {
+            message_reference: component.data[0],
+            total: component.data[1],
+            index: component.data[2]
+        }))
+    }
 }
 impl From<SMSIncomingMessage> for SMSMessage {
     fn from(incoming: SMSIncomingMessage) -> Self {
