@@ -4,12 +4,12 @@ mod database;
 mod encryption;
 
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
-use anyhow::{anyhow, bail, Result};
-use log::debug;
+use anyhow::{bail, Result};
+use log::{debug, warn};
 use pdu_rs::gsm_encoding::GsmMessageData;
-use pdu_rs::pdu::{DataCodingScheme, MessageType, PduAddress, PduFirstOctet, SubmitPdu, TypeOfNumber, VpFieldValidity};
+use pdu_rs::pdu::{DataCodingScheme, MessageType, PduFirstOctet, SubmitPdu, VpFieldValidity};
+use tokio::sync::Mutex;
 use crate::config::DatabaseConfig;
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
@@ -34,16 +34,9 @@ impl SMSManager {
     }
 
     fn create_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
-        let address = PduAddress::from_str(&*message.phone_number)?;
-
-        /// TODO: Re-add this.
-        // if !matches!(address.type_addr.type_of_number, TypeOfNumber::International) {
-        //     return Err(anyhow!("Sending phone number must be in international format!"));
-        // }
-
         let requests = GsmMessageData::encode_message(&*message.content)
             .into_iter()
-            .map(|message| {
+            .map(|data| {
                 let pdu = SubmitPdu {
                     sca: None,
                     first_octet: PduFirstOctet {
@@ -51,19 +44,19 @@ impl SMSManager {
                         rd: false,
                         vpf: VpFieldValidity::Relative,
                         srr: true,
-                        udhi: message.udh,
-                        rp: false,
+                        udhi: data.udh,
+                        rp: false
                     },
                     message_id: 0,
-                    destination: address.clone(),
+                    destination: message.phone_number.clone(),
                     dcs: DataCodingScheme::Standard {
                         compressed: false,
                         class: None,
-                        encoding: message.encoding
+                        encoding: data.encoding
                     },
                     validity_period: 167,
-                    user_data: message.bytes,
-                    user_data_len: message.user_data_len,
+                    user_data: data.bytes,
+                    user_data_len: data.user_data_len,
                 };
 
                 let (bytes, size) = pdu.as_bytes();
@@ -78,7 +71,6 @@ impl SMSManager {
     }
 
     /// Returns the database row ID and final modem response.
-    /// https://github.com/eeeeeta/huawei-modem/issues/24
     pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(i64, ModemResponse)> {
 
         // Send each send request for message, returning the last message.
@@ -144,17 +136,17 @@ impl SMSManager {
 #[derive(Clone)]
 pub struct SMSReceiver {
     manager: Arc<SMSManager>,
-    multipart: HashMap<u8, SMSMultipartMessages>
+    multipart: Arc<Mutex<HashMap<u8, SMSMultipartMessages>>>
 }
 impl SMSReceiver {
     pub fn new(manager: Arc<SMSManager>) -> Self {
-        Self { manager, multipart: HashMap::new() }
+        Self { manager, multipart: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     pub async fn handle_incoming_sms(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<i64>> {
 
         // Handle incoming message, discarding if it's a multipart message and not final.
-        let message = match self.get_incoming_sms_message(incoming_message) {
+        let message = match self.get_incoming_sms_message(incoming_message).await {
             Some(Ok(message)) => message,
             Some(Err(e)) => return Some(Err(e)),
             None => return None
@@ -199,7 +191,7 @@ impl SMSReceiver {
         Ok(message_id)
     }
 
-    fn get_incoming_sms_message(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<SMSMessage>> {
+    async fn get_incoming_sms_message(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<SMSMessage>> {
 
         // Decode the message data header to get multipart header.
         let header = match incoming_message.decode_multipart_data() {
@@ -209,12 +201,29 @@ impl SMSReceiver {
         };
 
         // Get multipart messages set for message reference.
-        let multipart = self.multipart.entry(header.message_reference)
+        let mut guard = self.multipart.lock().await;
+        let multipart = guard.entry(header.message_reference)
             .or_insert_with(|| SMSMultipartMessages::with_capacity(header.total as usize));
 
-        let is_full = multipart.add_message(incoming_message, header.index);
-        (is_full || header.index >= header.total)
-            .then(|| multipart.compile())
-            .map(|result| result.map_err(|_| anyhow!("Failed to convert final multipart SMS message!")))
+        // Add partial message, if it's full then return the compiled message.
+        // Otherwise, nothing is returned as there is no message to store.
+        match multipart.add_message(incoming_message, header.index) {
+            true => Some(multipart.compile()),
+            false => None
+        }
+    }
+
+    pub async fn cleanup_stalled_multipart(&mut self) {
+        debug!("Cleaning up stalled multipart messages.");
+        let mut guard = self.multipart.lock().await;
+        guard.retain(|message_reference, messages| {
+
+            // Show a warning whenever a message group has stalled.
+            let stalled = messages.is_stalled();
+            if stalled {
+                warn!("Removing received multipart message #{} has stalled!", message_reference);
+            }
+            stalled
+        });
     }
 }

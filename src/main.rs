@@ -5,12 +5,14 @@ mod config;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use anyhow::{bail, Result};
 use env_logger::Env;
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use clap::Parser;
+use tokio::time::interval;
 use crate::config::{AppConfig, HTTPConfig};
 use crate::http::create_app;
 use crate::modem::types::ModemIncomingMessage;
@@ -31,14 +33,16 @@ macro_rules! tokio_select_with_logging {
 
 struct AppHandles {
     modem: JoinHandle<()>,
-    receiver: JoinHandle<()>,
+    receiver_cleanup: JoinHandle<()>,
+    receiver_channel: JoinHandle<()>,
     http_opt: Option<JoinHandle<()>>,
     webhooks_opt: Option<JoinHandle<()>>
 }
 
 #[derive(Clone)]
 struct AppState {
-    pub sms_manager: Arc<SMSManager>
+    pub sms_manager: Arc<SMSManager>,
+    pub config: HTTPConfig
 }
 impl AppState {
     pub async fn create(config: AppConfig) -> Result<AppHandles> {
@@ -56,9 +60,11 @@ impl AppState {
             SMSManager::connect(config.database, modem_sender, webhooks_manager).await?
         );
 
+        let (receiver_cleanup_handle, receiver_channel_handle) = Self::create_receiver(sms_manager.clone(), main_rx);
         let handles = AppHandles {
             modem: modem_handle,
-            receiver: Self::create_receiver(sms_manager.clone(), main_rx),
+            receiver_cleanup: receiver_cleanup_handle,
+            receiver_channel: receiver_channel_handle,
             http_opt: Self::try_create_http(sms_manager.clone(), config.http),
             webhooks_opt: webhooks_handle
         };
@@ -68,24 +74,37 @@ impl AppState {
     fn create_receiver(
         sms_manager: Arc<SMSManager>,
         mut main_rx: UnboundedReceiver<ModemIncomingMessage>
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            info!("Started ModemIncomingMessage reciever");
+    ) -> (JoinHandle<()>, JoinHandle<()>) {
+        let receiver = SMSReceiver::new(sms_manager);
 
-            let mut receiver = SMSReceiver::new(sms_manager);
+        let mut cleanup_receiver = receiver.clone();
+        let cleanup_handle = tokio::spawn(async move {
+            info!("Started Modem Multipart Messages garbage collector");
+            let mut interval = interval(Duration::from_secs(10 * 60)); // 10 minutes
+
+            loop {
+                interval.tick().await;
+                cleanup_receiver.cleanup_stalled_multipart().await;
+            }
+        });
+
+        let mut channel_receiver = receiver.clone();
+        let channel_handle = tokio::spawn(async move {
+            info!("Started ModemIncomingMessage receiver");
+
             while let Some(message) = main_rx.recv().await {
                 debug!("AppState modem_receiver: {:?}", message);
 
                 match message {
                     ModemIncomingMessage::IncomingSMS(incoming) => {
-                        match receiver.handle_incoming_sms(incoming).await {
+                        match channel_receiver.handle_incoming_sms(incoming).await {
                             Some(Ok(row_id)) => debug!("Stored SMSIncomingMessage #{}", row_id),
                             Some(Err(e)) => error!("Failed to store SMSIncomingMessage with error: {:?}", e),
                             None => debug!("Not storing SMSIncomingMessage as it is apart of a multipart message.")
                         }
                     },
                     ModemIncomingMessage::DeliveryReport(report) => {
-                        match receiver.handle_delivery_report(report).await {
+                        match channel_receiver.handle_delivery_report(report).await {
                             Ok(message_id) => debug!("Updated delivery report status for message #{}", message_id),
                             Err(e) => error!("Failed to update message delivery report with error: {:?}", e)
                         }
@@ -93,7 +112,9 @@ impl AppState {
                     _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)
                 };
             }
-        })
+        });
+
+        (cleanup_handle, channel_handle)
     }
 
     fn try_create_http(
@@ -106,7 +127,7 @@ impl AppState {
         }
 
         let address = config.address;
-        let app_state = Self { sms_manager };
+        let app_state = Self { sms_manager, config };
 
         let handle = tokio::spawn(async move {
             let app = create_app(app_state);
@@ -127,6 +148,7 @@ impl AppState {
 #[derive(Parser)]
 #[command(name = "sms-api")]
 #[command(about = "A HTTP API that accepts and sends SMS messages.")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 struct CliArguments {
 
     #[arg(short, long, value_name = "FILE")]
@@ -144,23 +166,27 @@ async fn main() -> Result<()> {
     match (handles.http_opt, handles.webhooks_opt) {
         (Some(http), Some(webhooks)) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver,
+            "Modem Receiver" => handles.receiver_channel,
+            "Modem Multipart Messages GC" => handles.receiver_cleanup,
             "HTTP Server" => http,
             "Webhooks Sender" => webhooks
         },
         (Some(http), None) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver,
+            "Modem Receiver" => handles.receiver_channel,
+            "Modem Multipart Messages GC" => handles.receiver_cleanup,
             "HTTP Server" => http
         },
         (None, Some(webhooks)) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver,
+            "Modem Receiver" => handles.receiver_channel,
+            "Modem Multipart Messages GC" => handles.receiver_cleanup,
             "Webhooks Sender" => webhooks
         },
         (None, None) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver
+            "Modem Receiver" => handles.receiver_channel,
+            "Modem Multipart Messages GC" => handles.receiver_cleanup
         }
     }
 

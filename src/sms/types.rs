@@ -1,6 +1,7 @@
+use std::time::Duration;
 use anyhow::{anyhow, Result, Error};
 use log::debug;
-use pdu_rs::pdu::MessageStatus;
+use pdu_rs::pdu::{MessageStatus, PduAddress};
 use pdu_rs::gsm_encoding::udh::UserDataHeader;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
@@ -9,6 +10,7 @@ use tokio::time::Instant;
 use crate::config::ConfiguredWebhookEvent;
 
 pub type SMSEncryptionKey = [u8; 32];
+const MULTIPART_MESSAGES_STALLED_DURATION: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
 #[derive(Serialize, Deserialize, Clone, Debug, sqlx::FromRow)]
 pub struct SMSMessage {
@@ -34,14 +36,14 @@ impl SMSMessage {
 
 #[derive(Debug)]
 pub struct SMSOutgoingMessage {
-    pub phone_number: String,
+    pub phone_number: PduAddress,
     pub content: String
 }
 impl From<SMSOutgoingMessage> for SMSMessage {
     fn from(outgoing: SMSOutgoingMessage) -> Self {
         SMSMessage {
             message_id: None,
-            phone_number: outgoing.phone_number,
+            phone_number: outgoing.phone_number.to_string(),
             message_content: outgoing.content,
             message_reference: None,
             is_outgoing: true,
@@ -55,7 +57,7 @@ impl From<SMSOutgoingMessage> for SMSMessage {
 #[derive(Debug, Clone)]
 pub struct SMSMultipartMessages {
     pub total_size: usize,
-    pub last_updated: Option<Instant>,
+    pub last_updated: Instant,
     pub first_message: Option<SMSIncomingMessage>,
     pub text_len: usize,
     pub text_parts: Vec<Option<String>>,
@@ -65,7 +67,7 @@ impl SMSMultipartMessages {
     pub fn with_capacity(total_size: usize) -> Self {
         Self {
             total_size,
-            last_updated: None,
+            last_updated: Instant::now(),
             first_message: None,
             text_len: 0,
             text_parts: vec![None; total_size],
@@ -74,7 +76,7 @@ impl SMSMultipartMessages {
     }
 
     pub fn add_message(&mut self, message: SMSIncomingMessage, index: u8) -> bool {
-        self.last_updated = Some(Instant::now());
+        self.last_updated = Instant::now();
         if self.first_message.is_none() {
             self.first_message = Some(message.clone());
         }
@@ -108,6 +110,10 @@ impl SMSMultipartMessages {
         message.message_content = content;
 
         Ok(message)
+    }
+
+    pub fn is_stalled(&self) -> bool {
+        self.last_updated.elapsed() > MULTIPART_MESSAGES_STALLED_DURATION
     }
 }
 
