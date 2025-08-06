@@ -123,19 +123,23 @@ pub struct SentryConfig {
     pub dsn: String
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct HTTPConfig {
     #[serde(default)]
     pub enabled: bool,
 
     #[serde(default = "default_http_address")]
-    pub address: SocketAddr
+    pub address: SocketAddr,
+
+    #[serde(default = "default_international_format_only")]
+    pub send_international_format_only: bool
 }
 impl Default for HTTPConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            address: default_http_address()
+            address: default_http_address(),
+            send_international_format_only: default_international_format_only()
         }
     }
 }
@@ -146,6 +150,7 @@ fn default_modem_cmd_buffer_size() -> usize { 32 }
 fn default_modem_read_buffer_size() -> usize { 4096 }
 fn default_webhook_events() -> Vec<ConfiguredWebhookEvent> { vec![ConfiguredWebhookEvent::IncomingMessage] }
 fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
+fn default_international_format_only() -> bool { true }
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where

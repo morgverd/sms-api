@@ -1,4 +1,7 @@
+use std::str::FromStr;
+use anyhow::bail;
 use axum::extract::State;
+use pdu_rs::pdu::{PduAddress, TypeOfNumber};
 use crate::{AppState, http_post_handler, http_modem_handler};
 use crate::http::get_modem_json_result;
 use crate::modem::types::ModemRequest;
@@ -48,8 +51,13 @@ http_post_handler!(
     SendSmsRequest,
     SendSmsResponse,
     |state, payload| {
+        let phone_number = PduAddress::from_str(&payload.to)?;
+        if state.config.send_international_format_only && !matches!(phone_number.type_addr.type_of_number, TypeOfNumber::International) {
+            bail!("Sending phone number must be in international format!");
+        }
+
         let outgoing = SMSOutgoingMessage {
-            phone_number: payload.to,
+            phone_number,
             content: payload.content,
         };
         let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;
