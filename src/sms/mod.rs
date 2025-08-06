@@ -212,8 +212,9 @@ impl SMSReceiver {
         let multipart = self.multipart.entry(header.message_reference)
             .or_insert_with(|| SMSMultipartMessages::with_capacity(header.total as usize));
 
-        let is_final = multipart.add_message(incoming_message, header.index);
-        is_final.then(|| multipart.compile())
+        let is_full = multipart.add_message(incoming_message, header.index);
+        (is_full || header.index >= header.total)
+            .then(|| multipart.compile())
             .map(|result| result.map_err(|_| anyhow!("Failed to convert final multipart SMS message!")))
     }
 }
