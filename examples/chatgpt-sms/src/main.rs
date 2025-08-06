@@ -360,7 +360,13 @@ async fn http_webhook(
         ));
     }
 
+    // Ignore non-international numbers such as carrier numbers.
     let phone_number = payload.data.phone_number;
+    if !phone_number.starts_with("+") {
+        warn!("Discarding incoming non international number format: {}", phone_number);
+        return Ok(StatusCode::OK);
+    }
+
     let message_content = payload.data.message_content.trim().to_string();
     debug!("Received message from {}, queuing for processing", phone_number);
 
