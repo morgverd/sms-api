@@ -9,14 +9,7 @@ use crate::config::ModemConfig;
 use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::OutgoingCommand;
 use crate::modem::state_machine::ModemStateMachine;
-use crate::modem::types::{ModemIncomingMessage, ModemResponse};
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ModemStatus {
-    Online,
-    ShuttingDown,
-    Offline
-}
+use crate::modem::types::{ModemIncomingMessage, ModemResponse, ModemStatus};
 
 #[derive(Debug)]
 pub enum WorkerEvent {
@@ -30,6 +23,7 @@ pub struct ModemWorker {
     offline_since: Option<Instant>,
     state_machine: ModemStateMachine,
     read_buffer: Box<[u8]>,
+    main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     worker_event_rx: mpsc::UnboundedReceiver<WorkerEvent>,
     config: ModemConfig
 }
@@ -39,24 +33,28 @@ impl ModemWorker {
 
         Self {
             port,
-            status: ModemStatus::Online,
+            status: ModemStatus::Offline,
             offline_since: None,
-            state_machine: ModemStateMachine::new(main_tx, worker_event_tx),
+            state_machine: ModemStateMachine::new(worker_event_tx),
             read_buffer: vec![0u8; config.read_buffer_size].into_boxed_slice(),
+            main_tx,
             worker_event_rx,
             config
         }
     }
 
-    pub async fn initialize_and_run(mut self, command_rx: mpsc::Receiver<OutgoingCommand>) -> Result<()> {
+    pub async fn initialize_and_run(
+        mut self,
+        command_rx: mpsc::Receiver<OutgoingCommand>
+    ) -> Result<()> {
         match self.initialize_modem().await {
             Ok(()) => {
                 info!("Modem initialized successfully");
-                self.set_online();
+                self.set_status(ModemStatus::Online);
             }
             Err(e) => {
                 error!("Failed to initialize modem: {}", e);
-                self.set_offline();
+                self.set_status(ModemStatus::Offline);
             }
         }
         self.run(command_rx).await
@@ -71,7 +69,10 @@ impl ModemWorker {
             .map_err(|e| anyhow!(e))
     }
 
-    pub async fn run(mut self, mut command_rx: mpsc::Receiver<OutgoingCommand>) -> Result<()> {
+    pub async fn run(
+        mut self,
+        mut command_rx: mpsc::Receiver<OutgoingCommand>
+    ) -> Result<()> {
         let mut line_buffer = LineBuffer::with_max_size(self.config.line_buffer_size);
 
         let mut timeout_interval = interval(Duration::from_secs(1));
@@ -80,7 +81,6 @@ impl ModemWorker {
         info!("Started ModemWorker");
         loop {
             match self.status {
-
                 ModemStatus::Online => {
                     tokio::select! {
                         biased;
@@ -105,11 +105,12 @@ impl ModemWorker {
                             match result {
                                 Ok(0) => {
                                     warn!("Serial port closed, going offline");
-                                    self.set_offline();
+                                    self.set_status(ModemStatus::Offline);
                                 },
                                 Ok(n) => {
+                                    let main_tx = &self.main_tx;
                                     for line_event in line_buffer.process_data(&self.read_buffer[..n]) {
-                                        if let Err(e) = self.state_machine.transition_state(line_event).await {
+                                        if let Err(e) = self.state_machine.transition_state(main_tx, line_event).await {
                                             error!("Error processing modem event: {:?}", e);
                                             self.state_machine.reset_to_idle();
                                         }
@@ -117,7 +118,7 @@ impl ModemWorker {
                                 },
                                 Err(e) => {
                                     error!("Read error: {}", e);
-                                    self.set_offline();
+                                    self.set_status(ModemStatus::Offline);
                                 }
                             }
                         },
@@ -154,7 +155,7 @@ impl ModemWorker {
 
                     // Wait a bit then transition to offline
                     tokio::time::sleep(Duration::from_secs(2)).await;
-                    self.set_offline();
+                    self.set_status(ModemStatus::Offline);
                     self.state_machine.reset_to_idle();
                     line_buffer.clear();
                 },
@@ -196,46 +197,32 @@ impl ModemWorker {
 
     async fn handle_worker_event(&mut self, event: WorkerEvent) -> Result<()> {
         match event {
-            WorkerEvent::SetStatus(status) => {
-                match status {
-                    ModemStatus::Online => self.set_online(),
-                    ModemStatus::ShuttingDown => self.set_shutting_down(),
-                    ModemStatus::Offline => self.set_offline(),
-                }
-            },
+            WorkerEvent::SetStatus(status) => self.set_status(status),
             WorkerEvent::WriteCommand(data) => {
                 if let Err(e) = self.write(&data).await {
                     error!("Failed to write command: {}", e);
-                    self.set_offline();
+                    self.set_status(ModemStatus::Offline);
                 }
             }
         }
         Ok(())
     }
 
-    fn set_shutting_down(&mut self) {
-        if self.status == ModemStatus::Online {
-            warn!("Modem is shutting down!");
-            self.status = ModemStatus::ShuttingDown;
+    fn set_status(&mut self, status: ModemStatus) {
+        debug!("ModemWorker Status: {:?}", status);
+        if self.status == status {
+            return;
+        }
+
+        self.offline_since = if status == ModemStatus::Offline { None } else { Some(Instant::now()) };
+        self.status = status.clone();
+
+        // Send message outside of modem for webhooks etc.
+        match self.main_tx.send(ModemIncomingMessage::ModemStatusUpdate(status.clone())) {
+            Ok(_) => debug!("Sent ModemOnlineStatusUpdate, Status: {:?}", status),
+            Err(e) => error!("Failed to send ModemOnlineStatusUpdate, Status: {:?}, Error: {}", status, e)
         }
     }
-
-    fn set_offline(&mut self) {
-        if self.status != ModemStatus::Offline {
-            error!("Modem is now offline");
-            self.status = ModemStatus::Offline;
-            self.offline_since = Some(Instant::now());
-        }
-    }
-
-    fn set_online(&mut self) {
-        if self.status != ModemStatus::Online {
-            info!("Modem is back online");
-            self.status = ModemStatus::Online;
-            self.offline_since = None;
-        }
-    }
-
     async fn try_reconnect(&mut self) -> Result<bool> {
         if self.status != ModemStatus::Offline {
             return Ok(false);
@@ -249,7 +236,7 @@ impl ModemWorker {
                 match self.initialize_modem().await {
                     Ok(()) => {
                         info!("Modem reconnected and reinitialized successfully");
-                        self.set_online();
+                        self.set_status(ModemStatus::Online);
                         Ok(true)
                     }
                     Err(e) => {

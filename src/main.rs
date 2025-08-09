@@ -2,9 +2,9 @@ mod modem;
 mod http;
 mod sms;
 mod config;
+pub mod webhooks;
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use anyhow::{bail, Result};
 use env_logger::Env;
@@ -18,7 +18,8 @@ use crate::http::create_app;
 use crate::modem::types::ModemIncomingMessage;
 use crate::modem::ModemManager;
 use crate::sms::{SMSManager, SMSReceiver};
-use crate::sms::webhooks::SMSWebhookManager;
+use webhooks::WebhookSender;
+use crate::webhooks::WebhookEvent;
 
 macro_rules! tokio_select_with_logging {
     ($($name:expr => $handle:expr),+ $(,)?) => {
@@ -33,15 +34,15 @@ macro_rules! tokio_select_with_logging {
 
 struct AppHandles {
     modem: JoinHandle<()>,
-    receiver_cleanup: JoinHandle<()>,
-    receiver_channel: JoinHandle<()>,
+    modem_cleanup: JoinHandle<()>,
+    modem_channel: JoinHandle<()>,
     http_opt: Option<JoinHandle<()>>,
     webhooks_opt: Option<JoinHandle<()>>
 }
 
 #[derive(Clone)]
 struct AppState {
-    pub sms_manager: Arc<SMSManager>,
+    pub sms_manager: SMSManager,
     pub config: HTTPConfig
 }
 impl AppState {
@@ -55,16 +56,14 @@ impl AppState {
         };
 
         // Create webhook manager here to get its reader handle.
-        let (webhooks_manager, webhooks_handle) = SMSWebhookManager::new(config.webhooks).unzip();
-        let sms_manager = Arc::new(
-            SMSManager::connect(config.database, modem_sender, webhooks_manager).await?
-        );
+        let (webhooks_sender_opt, webhooks_handle) = WebhookSender::new(config.webhooks).unzip();
+        let sms_manager = SMSManager::connect(config.database, modem_sender, webhooks_sender_opt.clone()).await?;
 
-        let (receiver_cleanup_handle, receiver_channel_handle) = Self::create_receiver(sms_manager.clone(), main_rx);
+        let (receiver_cleanup_handle, receiver_channel_handle) = Self::create_receiver(sms_manager.clone(), webhooks_sender_opt.clone(), main_rx);
         let handles = AppHandles {
             modem: modem_handle,
-            receiver_cleanup: receiver_cleanup_handle,
-            receiver_channel: receiver_channel_handle,
+            modem_cleanup: receiver_cleanup_handle,
+            modem_channel: receiver_channel_handle,
             http_opt: Self::try_create_http(sms_manager.clone(), config.http),
             webhooks_opt: webhooks_handle
         };
@@ -72,11 +71,13 @@ impl AppState {
     }
 
     fn create_receiver(
-        sms_manager: Arc<SMSManager>,
+        sms_manager: SMSManager,
+        webhooks_sender: Option<WebhookSender>,
         mut main_rx: UnboundedReceiver<ModemIncomingMessage>
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let receiver = SMSReceiver::new(sms_manager);
 
+        // Cleanup stalled multipart messages from SMSReceiver.
         let mut cleanup_receiver = receiver.clone();
         let cleanup_handle = tokio::spawn(async move {
             info!("Started Modem Multipart Messages garbage collector");
@@ -88,6 +89,7 @@ impl AppState {
             }
         });
 
+        // Forward ModemIncomingMessage's from the modem to SMSManager.
         let mut channel_receiver = receiver.clone();
         let channel_handle = tokio::spawn(async move {
             info!("Started ModemIncomingMessage receiver");
@@ -109,6 +111,11 @@ impl AppState {
                             Err(e) => error!("Failed to update message delivery report with error: {:?}", e)
                         }
                     },
+                    ModemIncomingMessage::ModemStatusUpdate(status) => {
+                        if let Some(webhooks) = &webhooks_sender {
+                            webhooks.send(WebhookEvent::ModemStatusUpdate(status));
+                        }
+                    },
                     _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)
                 };
             }
@@ -118,7 +125,7 @@ impl AppState {
     }
 
     fn try_create_http(
-        sms_manager: Arc<SMSManager>,
+        sms_manager: SMSManager,
         config: HTTPConfig
     ) -> Option<JoinHandle<()>> {
         if !config.enabled {
@@ -166,27 +173,27 @@ async fn main() -> Result<()> {
     match (handles.http_opt, handles.webhooks_opt) {
         (Some(http), Some(webhooks)) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver_channel,
-            "Modem Multipart Messages GC" => handles.receiver_cleanup,
+            "Modem Cleanup" => handles.modem_cleanup,
+            "Modem Channel" => handles.modem_channel,
             "HTTP Server" => http,
             "Webhooks Sender" => webhooks
         },
         (Some(http), None) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver_channel,
-            "Modem Multipart Messages GC" => handles.receiver_cleanup,
+            "Modem Cleanup" => handles.modem_cleanup,
+            "Modem Channel" => handles.modem_channel,
             "HTTP Server" => http
         },
         (None, Some(webhooks)) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver_channel,
-            "Modem Multipart Messages GC" => handles.receiver_cleanup,
+            "Modem Cleanup" => handles.modem_cleanup,
+            "Modem Channel" => handles.modem_channel,
             "Webhooks Sender" => webhooks
         },
         (None, None) => tokio_select_with_logging! {
             "Modem Handler" => handles.modem,
-            "Modem Receiver" => handles.receiver_channel,
-            "Modem Multipart Messages GC" => handles.receiver_cleanup
+            "Modem Cleanup" => handles.modem_cleanup,
+            "Modem Channel" => handles.modem_channel
         }
     }
 

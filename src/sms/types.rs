@@ -7,7 +7,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
 use num_traits::cast::FromPrimitive;
 use tokio::time::Instant;
-use crate::config::ConfiguredWebhookEvent;
 
 pub type SMSEncryptionKey = [u8; 32];
 const MULTIPART_MESSAGES_STALLED_DURATION: Duration = Duration::from_secs(30 * 60); // 30 minutes
@@ -242,31 +241,4 @@ pub struct SMSDeliveryReport {
     pub status: u8,
     pub is_final: bool,
     pub created_at: Option<u64>
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum WebhookEvent {
-    #[serde(rename = "incoming")]
-    IncomingMessage(SMSMessage),
-
-    #[serde(rename = "outgoing")]
-    OutgoingMessage(SMSMessage),
-
-    #[serde(rename = "delivery")]
-    DeliveryReport {
-        message_id: i64,
-        report: SMSIncomingDeliveryReport
-    }
-}
-impl WebhookEvent {
-
-    #[inline]
-    pub fn to_configured_event(&self) -> ConfiguredWebhookEvent {
-        match self {
-            WebhookEvent::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
-            WebhookEvent::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
-            WebhookEvent::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport
-        }
-    }
 }

@@ -115,7 +115,10 @@ pub enum ConfiguredWebhookEvent {
     OutgoingMessage,
 
     #[serde(rename = "delivery")]
-    DeliveryReport
+    DeliveryReport,
+
+    #[serde(rename = "modem_status_update")]
+    ModemStatusUpdate
 }
 
 #[derive(Debug, Deserialize)]

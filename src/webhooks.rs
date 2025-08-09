@@ -8,17 +8,50 @@ use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
-use crate::sms::types::WebhookEvent;
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSMessage};
+use crate::modem::types::ModemStatus;
 
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum WebhookEvent {
+    #[serde(rename = "incoming")]
+    IncomingMessage(SMSMessage),
+
+    #[serde(rename = "outgoing")]
+    OutgoingMessage(SMSMessage),
+
+    #[serde(rename = "delivery")]
+    DeliveryReport {
+        message_id: i64,
+        report: SMSIncomingDeliveryReport
+    },
+
+    #[serde(rename = "modem_status_update")]
+    ModemStatusUpdate(ModemStatus)
+}
+impl WebhookEvent {
+
+    #[inline]
+    pub fn to_configured_event(&self) -> ConfiguredWebhookEvent {
+        match self {
+            WebhookEvent::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
+            WebhookEvent::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
+            WebhookEvent::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport,
+            WebhookEvent::ModemStatusUpdate { .. } => ConfiguredWebhookEvent::ModemStatusUpdate
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct SMSWebhookManager {
+pub struct WebhookSender {
     event_sender: mpsc::UnboundedSender<WebhookEvent>,
 }
-impl SMSWebhookManager {
+impl WebhookSender {
     pub fn new(webhooks: Option<Vec<ConfiguredWebhook>>) -> Option<(Self, JoinHandle<()>)> {
         let webhooks = match webhooks {
             Some(webhooks) => webhooks,
@@ -32,7 +65,7 @@ impl SMSWebhookManager {
         // The modem command channel is bound, so we should be fine from API spam.
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
         let handle = tokio::spawn(async move {
-            let worker = SMSWebhookWorker::new(webhooks, event_receiver);
+            let worker = WebhookWorker::new(webhooks, event_receiver);
             worker.run().await;
         });
 
@@ -41,6 +74,7 @@ impl SMSWebhookManager {
     }
 
     pub fn send(&self, event: WebhookEvent) {
+        debug!("Sending webhook event: {:?}", event);
         if let Err(e) = self.event_sender.send(event) {
             error!("Failed to queue webhook job: {}", e);
         }
@@ -49,13 +83,13 @@ impl SMSWebhookManager {
 
 type StoredWebhook = (ConfiguredWebhook, Option<HeaderMap>);
 
-struct SMSWebhookWorker {
+struct WebhookWorker {
     webhooks: Arc<[StoredWebhook]>,
     events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>>,
     event_receiver: mpsc::UnboundedReceiver<WebhookEvent>,
     client: Client
 }
-impl SMSWebhookWorker {
+impl WebhookWorker {
     fn new(webhooks: Vec<ConfiguredWebhook>, event_receiver: mpsc::UnboundedReceiver<WebhookEvent>) -> Self {
         let mut events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>> = HashMap::new();
         for (idx, webhook) in webhooks.iter().enumerate() {

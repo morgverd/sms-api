@@ -1,5 +1,4 @@
 pub mod types;
-pub mod webhooks;
 mod database;
 mod encryption;
 
@@ -11,23 +10,23 @@ use pdu_rs::gsm_encoding::GsmMessageData;
 use pdu_rs::pdu::{DataCodingScheme, MessageType, PduFirstOctet, SubmitPdu, VpFieldValidity};
 use tokio::sync::Mutex;
 use crate::config::DatabaseConfig;
+use crate::webhooks::{WebhookEvent, WebhookSender};
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessage, SMSMultipartMessages, SMSOutgoingMessage, SMSStatus, WebhookEvent};
-use crate::sms::webhooks::SMSWebhookManager;
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessage, SMSMultipartMessages, SMSOutgoingMessage, SMSStatus};
 
 #[derive(Clone)]
 pub struct SMSManager {
     modem: ModemSender,
     database: Arc<SMSDatabase>,
-    webhooks: Option<SMSWebhookManager>,
+    webhooks: Option<WebhookSender>,
 }
 impl SMSManager {
     pub async fn connect(
         config: DatabaseConfig,
         modem: ModemSender,
-        webhooks: Option<SMSWebhookManager>
+        webhooks: Option<WebhookSender>
     ) -> Result<Self> {
         let database = Arc::new(SMSDatabase::connect(config).await?);
         Ok(Self { modem, database, webhooks })
@@ -135,11 +134,11 @@ impl SMSManager {
 
 #[derive(Clone)]
 pub struct SMSReceiver {
-    manager: Arc<SMSManager>,
+    manager: SMSManager,
     multipart: Arc<Mutex<HashMap<u8, SMSMultipartMessages>>>
 }
 impl SMSReceiver {
-    pub fn new(manager: Arc<SMSManager>) -> Self {
+    pub fn new(manager: SMSManager) -> Self {
         Self { manager, multipart: Arc::new(Mutex::new(HashMap::new())) }
     }
 
@@ -191,6 +190,20 @@ impl SMSReceiver {
         Ok(message_id)
     }
 
+    pub async fn cleanup_stalled_multipart(&mut self) {
+        debug!("Cleaning up stalled multipart messages.");
+        let mut guard = self.multipart.lock().await;
+        guard.retain(|message_reference, messages| {
+
+            // Show a warning whenever a message group has stalled.
+            let stalled = messages.is_stalled();
+            if stalled {
+                warn!("Removing received multipart message #{} has stalled!", message_reference);
+            }
+            stalled
+        });
+    }
+
     async fn get_incoming_sms_message(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<SMSMessage>> {
 
         // Decode the message data header to get multipart header.
@@ -211,19 +224,5 @@ impl SMSReceiver {
             true => Some(multipart.compile()),
             false => None
         }
-    }
-
-    pub async fn cleanup_stalled_multipart(&mut self) {
-        debug!("Cleaning up stalled multipart messages.");
-        let mut guard = self.multipart.lock().await;
-        guard.retain(|message_reference, messages| {
-
-            // Show a warning whenever a message group has stalled.
-            let stalled = messages.is_stalled();
-            if stalled {
-                warn!("Removing received multipart message #{} has stalled!", message_reference);
-            }
-            stalled
-        });
     }
 }

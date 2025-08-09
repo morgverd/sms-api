@@ -4,13 +4,8 @@ use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::sync::mpsc;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 use crate::modem::commands::CommandState;
-use crate::modem::worker::{WorkerEvent, ModemStatus};
-use crate::modem::types::{
-    ModemRequest,
-    ModemResponse,
-    ModemIncomingMessage,
-    UnsolicitedMessageType
-};
+use crate::modem::worker::WorkerEvent;
+use crate::modem::types::{ModemRequest, ModemResponse, ModemIncomingMessage, UnsolicitedMessageType, ModemStatus};
 
 pub struct ModemEventHandlers {
     worker_event_tx: mpsc::UnboundedSender<WorkerEvent>,
@@ -103,9 +98,7 @@ impl ModemEventHandlers {
                 Ok(Some(ModemIncomingMessage::DeliveryReport(report)))
             },
             UnsolicitedMessageType::NetworkStatusChange => {
-                Ok(Some(ModemIncomingMessage::NetworkStatusChange {
-                    status: 0
-                }))
+                Ok(Some(ModemIncomingMessage::NetworkStatusChange(0)))
             },
             UnsolicitedMessageType::ShuttingDown => {
                 warn!("The modem is shutting down!");
