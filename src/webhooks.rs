@@ -32,7 +32,10 @@ pub enum WebhookEvent {
     },
 
     #[serde(rename = "modem_status_update")]
-    ModemStatusUpdate(ModemStatus)
+    ModemStatusUpdate {
+        previous: ModemStatus,
+        current: ModemStatus
+    }
 }
 impl WebhookEvent {
 

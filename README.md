@@ -142,17 +142,22 @@ This event is from the carrier to report the delivery status of previously sent 
 This event is sent from the ModemWorker when the modem serial connection has been detected as offline or when connection
 is re-established. The data is the ModemStatus.
 
-**Available `data` values:**
- - `Online` - Now online, either from startup or after a reconnection.
- - `ShuttingDown` - Shutdown message received, sent from the modem **on graceful shutdown**.
- - `Offline` - Now offline, either after `ShuttingDown` or if the connection has timed-out.
+| State Name     | Description                                                               |
+|----------------|---------------------------------------------------------------------------|
+| `Startup`      | Only used as initial state, so only found in previous.                    |
+| `Online`       | The modem serial connection is alive.                                     |
+| `ShuttingDown` | The modem has sent a `SHUTTING DOWN` message, used in graceful shutdowns. |
+| `Offline`      | The modem connection has closed or a timeout was detected.                |
 
 > This status reflects the Modem Hat hardware connection, not the cellular carrier network status.
 
 ```json
 {
   "type": "modem_status_update",
-  "data": "Online"
+  "data": {
+    "previous": "Online",
+    "current": "ShuttingDown"
+  }
 }
 ```
 

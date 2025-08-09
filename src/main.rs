@@ -111,9 +111,12 @@ impl AppState {
                             Err(e) => error!("Failed to update message delivery report with error: {:?}", e)
                         }
                     },
-                    ModemIncomingMessage::ModemStatusUpdate(status) => {
+                    ModemIncomingMessage::ModemStatusUpdate { previous, current } => {
                         if let Some(webhooks) = &webhooks_sender {
-                            webhooks.send(WebhookEvent::ModemStatusUpdate(status));
+                            webhooks.send(WebhookEvent::ModemStatusUpdate {
+                                previous,
+                                current
+                            });
                         }
                     },
                     _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)

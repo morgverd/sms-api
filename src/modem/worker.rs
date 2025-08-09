@@ -33,7 +33,7 @@ impl ModemWorker {
 
         Self {
             port,
-            status: ModemStatus::Offline,
+            status: ModemStatus::Startup,
             offline_since: None,
             state_machine: ModemStateMachine::new(worker_event_tx),
             read_buffer: vec![0u8; config.read_buffer_size].into_boxed_slice(),
@@ -190,7 +190,8 @@ impl ModemWorker {
                             }
                         }
                     }
-                }
+                },
+                _ => debug!("Cannot run ModemStatus: {:?}", self.status)
             }
         }
     }
@@ -214,11 +215,16 @@ impl ModemWorker {
             return;
         }
 
+        let previous = self.status.clone();
         self.offline_since = if status == ModemStatus::Offline { None } else { Some(Instant::now()) };
         self.status = status.clone();
 
         // Send message outside of modem for webhooks etc.
-        match self.main_tx.send(ModemIncomingMessage::ModemStatusUpdate(status.clone())) {
+        let message = ModemIncomingMessage::ModemStatusUpdate {
+            previous,
+            current: status.clone()
+        };
+        match self.main_tx.send(message) {
             Ok(_) => debug!("Sent ModemOnlineStatusUpdate, Status: {:?}", status),
             Err(e) => error!("Failed to send ModemOnlineStatusUpdate, Status: {:?}, Error: {}", status, e)
         }
