@@ -62,5 +62,5 @@ pub struct SendSmsRequest {
 #[derive(Serialize)]
 pub struct SendSmsResponse {
     pub message_id: i64,
-    pub response: ModemResponse
+    pub reference_id: u8
 }

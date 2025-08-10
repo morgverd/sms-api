@@ -20,7 +20,6 @@ pub enum WorkerEvent {
 pub struct ModemWorker {
     port: SerialStream,
     status: ModemStatus,
-    offline_since: Option<Instant>,
     state_machine: ModemStateMachine,
     read_buffer: Box<[u8]>,
     main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
@@ -34,7 +33,6 @@ impl ModemWorker {
         Self {
             port,
             status: ModemStatus::Startup,
-            offline_since: None,
             state_machine: ModemStateMachine::new(worker_event_tx),
             read_buffer: vec![0u8; config.read_buffer_size].into_boxed_slice(),
             main_tx,
@@ -216,7 +214,6 @@ impl ModemWorker {
         }
 
         let previous = self.status.clone();
-        self.offline_since = if status == ModemStatus::Offline { None } else { Some(Instant::now()) };
         self.status = status.clone();
 
         // Send message outside of modem for webhooks etc.
@@ -247,14 +244,12 @@ impl ModemWorker {
                     }
                     Err(e) => {
                         error!("Reconnection failed during initialization: {}", e);
-                        self.offline_since = Some(Instant::now());
                         Ok(false)
                     }
                 }
             }
             Err(e) => {
                 debug!("Basic connection test failed: {}", e);
-                self.offline_since = Some(Instant::now());
                 Ok(false)
             }
         }
