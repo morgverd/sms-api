@@ -1,7 +1,10 @@
+use std::str::FromStr;
+use anyhow::{anyhow, bail};
 use axum::extract::State;
+use pdu_rs::pdu::{PduAddress, TypeOfNumber};
 use crate::{AppState, http_post_handler, http_modem_handler};
 use crate::http::get_modem_json_result;
-use crate::modem::types::ModemRequest;
+use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse};
 
@@ -27,7 +30,6 @@ http_post_handler!(
     }
 );
 
-/// Since every field is optional, the request payload is too.
 http_post_handler!(
     db_latest_numbers,
     Option<GlobalFetchRequest>,
@@ -49,12 +51,22 @@ http_post_handler!(
     SendSmsRequest,
     SendSmsResponse,
     |state, payload| {
+        let phone_number = PduAddress::from_str(&payload.to)?;
+        if state.config.send_international_format_only && !matches!(phone_number.type_addr.type_of_number, TypeOfNumber::International) {
+            bail!("Sending phone number must be in international format!");
+        }
+
         let outgoing = SMSOutgoingMessage {
-            phone_number: payload.to,
+            phone_number,
             content: payload.content,
         };
+
         let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;
-        Ok(SendSmsResponse { message_id, response })
+        match response {
+            ModemResponse::SendResult { reference_id } => Ok(SendSmsResponse { message_id, reference_id }),
+            ModemResponse::Error { message } => Err(anyhow!(message)),
+            _ => Err(anyhow!("Invalid ModemResponse for sending an SMS request!"))
+        }
     }
 );
 

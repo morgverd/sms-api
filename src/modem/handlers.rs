@@ -1,16 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use log::{debug, warn};
 use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::sync::mpsc;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 use crate::modem::commands::CommandState;
-use crate::modem::worker::{WorkerEvent, ModemStatus};
-use crate::modem::types::{
-    ModemRequest,
-    ModemResponse,
-    ModemIncomingMessage,
-    UnsolicitedMessageType
-};
+use crate::modem::worker::WorkerEvent;
+use crate::modem::types::{ModemRequest, ModemResponse, ModemIncomingMessage, UnsolicitedMessageType, ModemStatus};
 
 pub struct ModemEventHandlers {
     worker_event_tx: mpsc::UnboundedSender<WorkerEvent>,
@@ -78,12 +73,17 @@ impl ModemEventHandlers {
                 let content_hex = hex::decode(content).map_err(|e| anyhow!(e))?;
                 let deliver_pdu = DeliverPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
 
-                let incoming = SMSIncomingMessage {
-                    phone_number: deliver_pdu.originating_address.to_string(),
-                    content: deliver_pdu.get_message_data()
-                        .decode_message()
-                        .map_err(|e| anyhow!(e))?.text
+                // Decode incoming message data to get user data header which is required for multipart messages.
+                let phone_number = deliver_pdu.originating_address.to_string();
+                let incoming = match deliver_pdu.get_message_data().decode_message() {
+                    Ok(msg) => SMSIncomingMessage {
+                        phone_number,
+                        user_data_header: msg.udh,
+                        content: msg.text
+                    },
+                    Err(e) => bail!("Failed to parse incoming SMS data: {:?}", e)
                 };
+
                 Ok(Some(ModemIncomingMessage::IncomingSMS(incoming)))
             },
             UnsolicitedMessageType::DeliveryReport => {
@@ -98,9 +98,7 @@ impl ModemEventHandlers {
                 Ok(Some(ModemIncomingMessage::DeliveryReport(report)))
             },
             UnsolicitedMessageType::NetworkStatusChange => {
-                Ok(Some(ModemIncomingMessage::NetworkStatusChange {
-                    status: 0
-                }))
+                Ok(Some(ModemIncomingMessage::NetworkStatusChange(0)))
             },
             UnsolicitedMessageType::ShuttingDown => {
                 warn!("The modem is shutting down!");

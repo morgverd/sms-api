@@ -1,11 +1,15 @@
-use anyhow::{anyhow, Error};
-use pdu_rs::pdu::MessageStatus;
+use std::time::Duration;
+use anyhow::{anyhow, Result, Error};
+use log::debug;
+use pdu_rs::pdu::{MessageStatus, PduAddress};
+use pdu_rs::gsm_encoding::udh::UserDataHeader;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sqlx::FromRow;
 use num_traits::cast::FromPrimitive;
-use crate::config::ConfiguredWebhookEvent;
+use tokio::time::Instant;
 
 pub type SMSEncryptionKey = [u8; 32];
+const MULTIPART_MESSAGES_STALLED_DURATION: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
 #[derive(Serialize, Deserialize, Clone, Debug, sqlx::FromRow)]
 pub struct SMSMessage {
@@ -31,14 +35,14 @@ impl SMSMessage {
 
 #[derive(Debug)]
 pub struct SMSOutgoingMessage {
-    pub phone_number: String,
+    pub phone_number: PduAddress,
     pub content: String
 }
 impl From<SMSOutgoingMessage> for SMSMessage {
     fn from(outgoing: SMSOutgoingMessage) -> Self {
         SMSMessage {
             message_id: None,
-            phone_number: outgoing.phone_number,
+            phone_number: outgoing.phone_number.to_string(),
             message_content: outgoing.content,
             message_reference: None,
             is_outgoing: true,
@@ -50,9 +54,108 @@ impl From<SMSOutgoingMessage> for SMSMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct SMSMultipartMessages {
+    pub total_size: usize,
+    pub last_updated: Instant,
+    pub first_message: Option<SMSIncomingMessage>,
+    pub text_len: usize,
+    pub text_parts: Vec<Option<String>>,
+    pub received_count: usize,
+}
+impl SMSMultipartMessages {
+    pub fn with_capacity(total_size: usize) -> Self {
+        Self {
+            total_size,
+            last_updated: Instant::now(),
+            first_message: None,
+            text_len: 0,
+            text_parts: vec![None; total_size],
+            received_count: 0
+        }
+    }
+
+    pub fn add_message(&mut self, message: SMSIncomingMessage, index: u8) -> bool {
+        self.last_updated = Instant::now();
+        if self.first_message.is_none() {
+            self.first_message = Some(message.clone());
+        }
+
+        // Make multipart index 0-based.
+        let idx = (index as usize).saturating_sub(1);
+        if idx < self.text_parts.len() && self.text_parts[idx].is_none() {
+
+            // Dirty fix until I have the time to rewrite the PDU parser.
+            let content = if message.content.ends_with("@") {
+                message.content.trim_end_matches("@").to_string()
+            } else {
+                message.content
+            };
+
+            self.text_len += content.len();
+            self.text_parts[idx] = Some(content);
+            self.received_count += 1;
+        }
+
+        debug!("Received Multipart SMS Count: {:?} | Max: {:?}", self.received_count, self.total_size);
+        self.received_count >= self.total_size
+    }
+
+    pub fn compile(&self) -> Result<SMSMessage> {
+        let first_message = match &self.first_message {
+            Some(first_message) => first_message,
+            None => return Err(anyhow!("Missing required first message to convert into SMSMessage!"))
+        };
+
+        let mut content = String::with_capacity(self.text_len);
+        for msg_opt in &self.text_parts {
+            if let Some(text) = msg_opt {
+                content.push_str(&text);
+            }
+        }
+
+        let mut message = SMSMessage::from(first_message.clone());
+        message.message_content = content;
+
+        Ok(message)
+    }
+
+    pub fn is_stalled(&self) -> bool {
+        self.last_updated.elapsed() > MULTIPART_MESSAGES_STALLED_DURATION
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SMSMultipartHeader {
+    pub message_reference: u8,
+    pub total: u8,
+    pub index: u8
+}
+
+#[derive(Debug, Clone)]
 pub struct SMSIncomingMessage {
     pub phone_number: String,
+    pub user_data_header: Option<UserDataHeader>,
     pub content: String
+}
+impl SMSIncomingMessage {
+    pub fn decode_multipart_data(&self) -> Option<Result<SMSMultipartHeader>> {
+
+        // Find header component with multipart ID.
+        let component = self.user_data_header.as_ref()?
+            .components
+            .iter()
+            .find(|c| c.id == 0x00)?;
+
+        if component.data.len() != 3 {
+            return Some(Err(anyhow!("Invalid multipart header length!")));
+        }
+
+        Some(Ok(SMSMultipartHeader {
+            message_reference: component.data[0],
+            total: component.data[1],
+            index: component.data[2]
+        }))
+    }
 }
 impl From<SMSIncomingMessage> for SMSMessage {
     fn from(incoming: SMSIncomingMessage) -> Self {
@@ -146,31 +249,4 @@ pub struct SMSDeliveryReport {
     pub status: u8,
     pub is_final: bool,
     pub created_at: Option<u64>
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum WebhookEvent {
-    #[serde(rename = "incoming")]
-    IncomingMessage(SMSMessage),
-
-    #[serde(rename = "outgoing")]
-    OutgoingMessage(SMSMessage),
-
-    #[serde(rename = "delivery")]
-    DeliveryReport {
-        message_id: i64,
-        report: SMSIncomingDeliveryReport
-    }
-}
-impl WebhookEvent {
-
-    #[inline]
-    pub fn to_configured_event(&self) -> ConfiguredWebhookEvent {
-        match self {
-            WebhookEvent::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
-            WebhookEvent::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
-            WebhookEvent::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport
-        }
-    }
 }

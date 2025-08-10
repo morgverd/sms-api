@@ -76,6 +76,14 @@ impl Display for ModemResponse {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ModemStatus {
+    Startup,
+    Online,
+    ShuttingDown,
+    Offline
+}
+
 #[derive(Debug)]
 pub enum ModemEvent {
     UnsolicitedMessage {
@@ -121,11 +129,13 @@ impl UnsolicitedMessageType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ModemIncomingMessage {
     IncomingSMS(SMSIncomingMessage),
     DeliveryReport(SMSIncomingDeliveryReport),
-    NetworkStatusChange {
-        status: u8
+    ModemStatusUpdate {
+        previous: ModemStatus,
+        current: ModemStatus
     },
+    NetworkStatusChange(u8)
 }
