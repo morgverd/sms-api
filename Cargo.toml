@@ -1,18 +1,16 @@
 [package]
 name = "sms-api"
-version = "0.1.0"
+version = "0.2.10"
 edition = "2021"
 
 [dependencies]
 pdu-rs = { git = "https://github.com/morgverd/pdu-rs", branch = "main" }
 tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = { version = "0.7.15", features = ["compat"] }
-uuid = { version = "1.17.0", features = ["v4"] }
 serde = { version = "1.0.219", features = ["derive"] }
 tower-http = { version = "0.6.6", features = ["cors"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite"] }
 clap = { version = "4.5.39", features = ["derive"] }
-toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+toml = { version = "0.9.5", default-features = false, features = ["serde", "parse"] }
 reqwest = { version = "0.12.19", default-features = false, features = ["rustls-tls", "json"] }
 anyhow = "1.0.98"
 tokio-serial = "5.4.5"

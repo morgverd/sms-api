@@ -52,17 +52,12 @@ enum StateMachineState {
 }
 
 pub struct ModemStateMachine {
-    main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     state: StateMachineState,
     handlers: ModemEventHandlers
 }
 impl ModemStateMachine {
-    pub fn new(
-        main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
-        worker_event_tx: mpsc::UnboundedSender<WorkerEvent>
-    ) -> Self {
+    pub fn new(worker_event_tx: mpsc::UnboundedSender<WorkerEvent>) -> Self {
         Self {
-            main_tx,
             state: StateMachineState::Idle,
             handlers: ModemEventHandlers::new(worker_event_tx)
         }
@@ -111,7 +106,11 @@ impl ModemStateMachine {
         }).await.map(|_| true)
     }
 
-    pub async fn transition_state(&mut self, line_event: LineEvent) -> Result<()> {
+    pub async fn transition_state(
+        &mut self,
+        main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
+        line_event: LineEvent
+    ) -> Result<()> {
         debug!("ModemStateMachine transition_state: LineEvent: {:?}", line_event);
 
         let modem_event = match line_event {
@@ -121,7 +120,7 @@ impl ModemStateMachine {
 
         debug!("ModemStateMachine transition_state: ModemEvent: {:?}, State: {:?}", modem_event, self.state);
 
-        let new_state = self.process_event(modem_event).await?;
+        let new_state = self.process_event(main_tx, modem_event).await?;
         debug!("ModemStateMachine transition_state: {:?} -> {:?}", self.state, new_state);
         self.state = new_state;
 
@@ -130,12 +129,13 @@ impl ModemStateMachine {
 
     async fn process_event(
         &mut self,
+        main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
         modem_event: ModemEvent
     ) -> Result<StateMachineState> {
         match (take(&mut self.state), modem_event) {
             // Handle unsolicited message completion
             (StateMachineState::UnsolicitedMessage { message_type, interrupted_command, .. }, ModemEvent::Data(content)) => {
-                self.handle_unsolicited(&message_type, &content).await;
+                self.handle_unsolicited(main_tx, &message_type, &content).await;
                 Ok(match interrupted_command {
                     Some(execution) => StateMachineState::Command(execution),
                     None => StateMachineState::Idle,
@@ -148,7 +148,7 @@ impl ModemStateMachine {
                 debug!("Unsolicited message header received during command {}: {:?}", sequence, header);
 
                 if !message_type.has_next_line() {
-                    self.handle_unsolicited(&message_type, &header).await;
+                    self.handle_unsolicited(main_tx, &message_type, &header).await;
                     Ok(StateMachineState::Command(execution))
                 } else {
                     Ok(StateMachineState::UnsolicitedMessage {
@@ -161,7 +161,7 @@ impl ModemStateMachine {
                 debug!("Unsolicited message header received while idle: {:?}", header);
 
                 if !message_type.has_next_line() {
-                    self.handle_unsolicited(&message_type, &header).await;
+                    self.handle_unsolicited(main_tx, &message_type, &header).await;
                     Ok(StateMachineState::Idle)
                 } else {
                     Ok(StateMachineState::UnsolicitedMessage {
@@ -254,10 +254,10 @@ impl ModemStateMachine {
         }
     }
 
-    async fn handle_unsolicited(&self, message_type: &UnsolicitedMessageType, content: &str) {
+    async fn handle_unsolicited(&self, main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>, message_type: &UnsolicitedMessageType, content: &str) {
         match self.handlers.handle_unsolicited_message(message_type, content).await {
             Ok(message) => if let Some(message) = message {
-                let _ = self.main_tx.send(message);
+                let _ = main_tx.send(message);
             },
             Err(e) => error!("Couldn't handle incoming SMS message with error: {:?}", e)
         }

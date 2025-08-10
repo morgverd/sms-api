@@ -52,7 +52,7 @@ enabled = true
 # Adds a webhook which will receive all events.
 [[webhooks]]
 url = "https://webhook.my-site.org"
-events = ["incoming", "outgoing", "delivery"]
+events = ["incoming", "outgoing", "delivery", "modem_status_update"]
 
 # Custom authorization header for the webhook.
 [webhooks.headers]
@@ -88,8 +88,7 @@ This event is from the HTTP API, used to distribute message send responses from 
 The `message_reference` is assigned by the modem or carrier.  It's not very useful externally but is used to correspond delivery reports.
 It's a `u8` so wraps around to 0 once it exceeds 255.
 
-Available `status` initialization values:
-
+**Available `status` initialization values:**
 - **`Sent`** - The message was sent to the carrier without any errors.
 - **`TemporaryFailure`** - The message failed however **it will be retried** by carrier.
 - **`PermanentFailure`** - The message failed and **will not be retried** by the carrier.
@@ -138,12 +137,34 @@ This event is from the carrier to report the delivery status of previously sent 
 }
 ```
 
+### Modem Status Update
+
+This event is sent from the ModemWorker when the modem serial connection has been detected as offline or when connection
+is re-established. The data is the ModemStatus.
+
+| State Name     | Description                                                               |
+|----------------|---------------------------------------------------------------------------|
+| `Startup`      | Only used as initial state, so only found in previous.                    |
+| `Online`       | The modem serial connection is alive.                                     |
+| `ShuttingDown` | The modem has sent a `SHUTTING DOWN` message, used in graceful shutdowns. |
+| `Offline`      | The modem connection has closed or a timeout was detected.                |
+
+> This status reflects the Modem Hat hardware connection, not the cellular carrier network status.
+
+```json
+{
+  "type": "modem_status_update",
+  "data": {
+    "previous": "Online",
+    "current": "ShuttingDown"
+  }
+}
+```
+
 ## Limitations
 
-Things that need to be fixed before I can consider this project ready to be used in larger projects:
-- Multipart messages are received and stored individually opposed to as one large message.
-- Multipart messages only track delivery for the final part. This means that previous parts could fail,
-  meaning the end user wouldn't receive the message.
+Delivery confirmation only tracks the final message part of a multipart message, creating potential for undetected failures in earlier parts.
+Sequential delivery makes partial reception unlikely but possible.
 
 ## Todo
 

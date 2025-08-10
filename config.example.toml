@@ -36,6 +36,10 @@ enabled = true
 # The bind address used for the HTTP TcpListener.
 address = "0.0.0.0:3000"
 
+# Should the SMS Send route only accept international number formats (eg: +44....)?
+# This prevents sending to internal carrier numbers which could be used to check balance etc.
+send_international_format_only = true
+
 # Webhook Configuration Examples.
 # You can define multiple webhooks with different configurations.
 
