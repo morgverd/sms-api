@@ -83,8 +83,16 @@ impl SMSMultipartMessages {
         // Make multipart index 0-based.
         let idx = (index as usize).saturating_sub(1);
         if idx < self.text_parts.len() && self.text_parts[idx].is_none() {
-            self.text_len += message.content.len();
-            self.text_parts[idx] = Some(message.content);
+
+            // Dirty fix until I have the time to rewrite the PDU parser.
+            let content = if message.content.ends_with("@") {
+                message.content.trim_end_matches("@").to_string()
+            } else {
+                message.content
+            };
+
+            self.text_len += content.len();
+            self.text_parts[idx] = Some(content);
             self.received_count += 1;
         }
 
