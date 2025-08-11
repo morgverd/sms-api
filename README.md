@@ -5,10 +5,11 @@ Send and receive SMS messages via a GSM modem.
 ## Features
 
 - Optional HTTP server to send modem operations and access database.
-- Handles SMS delivery reports, updating send status when received.
-- Allows unsolicited notifications to interrupt command execution for immediate updates.
 - HTTP webhook support for different events (incoming, outgoing, delivery).
 - **All incoming and outgoing SMS message content is stored encrypted.**
+- Handles SMS delivery reports, updating send status when received.
+- Allows unsolicited notifications to interrupt command execution for immediate updates.
+- Optional Sentry client integration (must be built with `sentry` feature).
 - Provides [pdu-rs](https://github.com/morgverd/pdu-rs) crate for SMS PDU parsing.
 
 ### HTTP Routes

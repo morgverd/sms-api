@@ -1,4 +1,4 @@
-# Database Configuration.
+# [REQUIRED] Database Configuration.
 [database]
 # [REQUIRED] An absolute path to the SQLite database that is used to store messages.
 database_url = "/home/pi/sms-database.db"
@@ -7,7 +7,8 @@ database_url = "/home/pi/sms-database.db"
 # Generate with: openssl rand -base64 32.
 encryption_key = "PUT_YOUR_BASE64_ENCRYPTION_KEY_HERE"
 
-# Modem Configuration.
+# --------------------------------------------------------------------------------
+# [OPTIONAL] Modem Configuration.
 [modem]
 # The modem serial device path.
 device = "/dev/ttyS0"
@@ -27,7 +28,8 @@ read_buffer_size = 4096
 # This determines how much data is kept for processing complte lines and large responses.
 line_buffer_size = 4096
 
-# HTTP Server Configuration.
+# --------------------------------------------------------------------------------
+# [OPTIONAL] HTTP Server Configuration.
 [http]
 # If the HTTP server should be started. By default, this is false. Without the HTTP server, this effectively just
 # becomes an SMS reciever which can use the webhooks to forward them since the HTTP API is required for sending.
@@ -40,6 +42,26 @@ address = "0.0.0.0:3000"
 # This prevents sending to internal carrier numbers which could be used to check balance etc.
 send_international_format_only = true
 
+# --------------------------------------------------------------------------------
+# [OPTIONAL] Sentry error tracking and monitoring (requires sentry feature to be enabled)
+[sentry]
+# [REQUIRED] Your Sentry project DSN URL - get this from your Sentry project settings.
+dsn = "https://abc123@sentry.io/1"
+
+# Environment name to categorize deployments (e.g., dev, staging, production).
+environment = "dev"
+
+# A descriptive name for this server instance to help identify it in Sentry.
+server_name = "Identifable Name"
+
+# Whether to include personally identifiable information in error reports.
+send_default_pii = false
+
+# Should Sentry log debug information to stdout (not through the application logger).
+# Only use this when trying to diagnose Sentry specific issues.
+debug = false
+
+# --------------------------------------------------------------------------------
 # Webhook Configuration Examples.
 # You can define multiple webhooks with different configurations.
 
