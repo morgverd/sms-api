@@ -2,11 +2,110 @@ use std::str::FromStr;
 use anyhow::{anyhow, bail};
 use axum::extract::State;
 use pdu_rs::pdu::{PduAddress, TypeOfNumber};
-use crate::{http_post_handler, http_modem_handler};
 use crate::http::get_modem_json_result;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse};
+
+macro_rules! http_response_handler {
+    ($result:expr) => {
+        match $result {
+            Ok(data) => Ok(axum::Json(HttpResponse {
+                success: true,
+                response: Some(data),
+                error: None
+            })),
+            Err(e) => Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(HttpResponse {
+                    success: false,
+                    response: None,
+                    error: Some(e.to_string())
+                })
+            ))
+        }
+    };
+}
+
+macro_rules! http_get_handler {
+    (
+        $fn_name:ident,
+        $response_type:ty,
+        $callback:block
+    ) => {
+        pub async fn $fn_name() -> crate::http::types::JsonResult<$response_type> {
+            async fn inner() -> anyhow::Result<$response_type> {
+                $callback
+            }
+
+            let result = inner().await;
+            http_response_handler!(result)
+        }
+    };
+}
+
+macro_rules! http_post_handler {
+    (
+        $fn_name:ident,
+        Option<$request_type:ty>,
+        $response_type:ty,
+        |$state:ident, $payload:ident| $callback:block
+    ) => {
+        pub async fn $fn_name(
+            axum::extract::State($state): axum::extract::State<crate::app::HttpState>,
+            payload: Option<axum::Json<$request_type>>
+        ) -> crate::http::types::JsonResult<$response_type> {
+            async fn inner(
+                $state: crate::app::HttpState,
+                $payload: Option<$request_type>,
+            ) -> anyhow::Result<$response_type> {
+                $callback
+            }
+
+            let $payload = payload.map(|json| json.0);
+            let result = inner($state, $payload).await;
+            http_response_handler!(result)
+        }
+    };
+    (
+        $fn_name:ident,
+        $request_type:ty,
+        $response_type:ty,
+        |$state:ident, $payload:ident| $callback:block
+    ) => {
+        pub async fn $fn_name(
+            axum::extract::State($state): axum::extract::State<crate::app::HttpState>,
+            axum::Json($payload): axum::Json<$request_type>
+        ) -> crate::http::types::JsonResult<$response_type> {
+            async fn inner(
+                $state: crate::app::HttpState,
+                $payload: $request_type,
+            ) -> anyhow::Result<$response_type> {
+                $callback
+            }
+
+            let result = inner($state, $payload).await;
+            http_response_handler!(result)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! http_modem_handler {
+    ($fn_name:ident, $modem_req:expr) => {
+        pub async fn $fn_name(
+            State(state): State<crate::app::HttpState>
+        ) -> crate::http::types::JsonResult<crate::modem::types::ModemResponse> {
+            get_modem_json_result(state, $modem_req).await
+        }
+    };
+}
+
+http_get_handler!(
+    get_version,
+    &'static str,
+    { Ok(crate::VERSION) }
+);
 
 http_post_handler!(
     db_sms,

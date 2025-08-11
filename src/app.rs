@@ -8,7 +8,6 @@ use crate::config::{AppConfig, HTTPConfig};
 use crate::http::create_app;
 use crate::modem::ModemManager;
 use crate::modem::types::ModemIncomingMessage;
-use crate::SentryGuard;
 use crate::sms::{SMSManager, SMSReceiver};
 use crate::webhooks::{WebhookEvent, WebhookSender};
 
@@ -22,6 +21,12 @@ macro_rules! tokio_select_with_logging {
         }
     };
 }
+
+#[cfg(feature = "sentry")]
+pub type SentryGuard = Option<sentry::ClientInitGuard>;
+
+#[cfg(not(feature = "sentry"))]
+pub type SentryGuard = Option<()>;
 
 #[derive(Clone)]
 pub struct HttpState {
@@ -165,10 +170,9 @@ impl AppHandles {
         }
 
         let address = config.address;
-        let app_state = HttpState { sms_manager, config };
+        let app = create_app(HttpState { sms_manager, config }, _sentry).expect("Failed to create HTTP app!");
 
         let handle = tokio::spawn(async move {
-            let app = create_app(app_state, _sentry).expect("Failed to create HTTP app!");
             let listener = tokio::net::TcpListener::bind(address)
                 .await
                 .expect("Failed to bind to address");

@@ -16,6 +16,7 @@ Send and receive SMS messages via a GSM modem.
 
 | Route                       | AT Command | Description                                                                              |
 |-----------------------------|------------|------------------------------------------------------------------------------------------|
+| `GET /version`              | -          | Get the current build `version` content.                                                 |
 | `POST /db/sms`              | -          | Query messages to and from a `phone_number` with pagination.                             |
 | `POST /db/latest-numbers`   | -          | Query all latest numbers (sender or receiver) with optional pagination.                  |
 | `POST /db/delivery-reports` | -          | Query all delivery reports for a `message_id` with optional pagination.                  |

@@ -1,6 +1,5 @@
 mod routes;
 mod types;
-mod macros;
 
 use anyhow::{bail, Result};
 use axum::routing::{get, post};
@@ -67,6 +66,7 @@ async fn auth_middleware(
 
 pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
     let mut router = axum::Router::new()
+        .route("/version", get(get_version))
         .route("/db/sms", post(db_sms))
         .route("/db/latest-numbers", post(db_latest_numbers))
         .route("/db/delivery-reports", post(db_delivery_reports))
@@ -81,9 +81,9 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
         );
 
     // Add optional authentication middleware.
-    let auth_token = std::env::var("SMS_API_HTTP_TOKEN");
+    let auth_token = std::env::var("SMS_HTTP_AUTH_TOKEN");
     if state.config.require_authentication && auth_token.is_err() {
-        bail!("Missing required SMS_API_HTTP_TOKEN environment variable, and require_authentication is enabled");
+        bail!("Missing required SMS_HTTP_AUTH_TOKEN environment variable, and require_authentication is enabled");
     }
     if let Ok(token) = auth_token {
         info!("Adding HTTP authentication middleware!");
@@ -91,23 +91,21 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
             axum::middleware::from_fn_with_state(token, auth_middleware)
         );
     } else {
-        warn!("Serving HTTP without authentication middleware due to missing/invalid SMS_API_HTTP_TOKEN");
+        warn!("Serving HTTP without authentication middleware due to missing/invalid SMS_HTTP_AUTH_TOKEN");
     }
 
     // If Sentry is enabled, include axum integration layers.
     #[cfg(feature = "sentry")]
-    let router = if _sentry {
+    if _sentry {
         log::debug!("Adding Sentry Axum layer");
-        router
+        router = router
             .layer(
                 ServiceBuilder::new().layer(NewSentryLayer::<axum::http::Request<axum::body::Body>>::new_from_top())
             )
             .layer(
                 ServiceBuilder::new().layer(SentryHttpLayer::new().enable_transaction())
             )
-    } else {
-        router
-    };
+    }
 
     Ok(router.with_state(state))
 }
