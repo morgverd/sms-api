@@ -1,7 +1,11 @@
 [package]
 name = "sms-api"
-version = "0.2.10"
+version = "0.2.13"
 edition = "2021"
+
+[features]
+default = []
+sentry = ["dep:sentry", "dep:sentry-log", "dep:sentry-anyhow", "dep:sentry-panic"]
 
 [dependencies]
 pdu-rs = { git = "https://github.com/morgverd/pdu-rs", branch = "main" }
@@ -25,3 +29,7 @@ aes-gcm = "0.10.3"
 cipher = "0.4.4"
 futures = "0.3.31"
 num-traits = "0.2.19"
+sentry = { version = "0.42.0", default-features = false, features = ["backtrace", "contexts", "debug-images", "panic", "reqwest", "rustls", "release-health", "tower-axum-matched-path"], optional = true }
+sentry-log = { version = "0.42.0", optional = true }
+sentry-anyhow = { version = "0.42.0", optional = true }
+sentry-panic = { version = "0.42.0", optional = true }

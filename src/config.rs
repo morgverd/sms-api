@@ -13,6 +13,8 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
+
+    #[cfg(feature = "sentry")]
     pub sentry: Option<SentryConfig>,
 
     #[serde(default)]
@@ -121,9 +123,22 @@ pub enum ConfiguredWebhookEvent {
     ModemStatusUpdate
 }
 
+#[cfg(feature = "sentry")]
 #[derive(Debug, Deserialize)]
 pub struct SentryConfig {
-    pub dsn: String
+    pub dsn: String,
+
+    #[serde(default)]
+    pub environment: Option<String>,
+
+    #[serde(default)]
+    pub server_name: Option<String>,
+
+    #[serde(default)]
+    pub debug: bool,
+
+    #[serde(default = "default_true")]
+    pub send_default_pii: bool
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -134,7 +149,7 @@ pub struct HTTPConfig {
     #[serde(default = "default_http_address")]
     pub address: SocketAddr,
 
-    #[serde(default = "default_international_format_only")]
+    #[serde(default = "default_true")]
     pub send_international_format_only: bool
 }
 impl Default for HTTPConfig {
@@ -142,7 +157,7 @@ impl Default for HTTPConfig {
         Self {
             enabled: false,
             address: default_http_address(),
-            send_international_format_only: default_international_format_only()
+            send_international_format_only: default_true()
         }
     }
 }
@@ -153,7 +168,7 @@ fn default_modem_cmd_buffer_size() -> usize { 32 }
 fn default_modem_read_buffer_size() -> usize { 4096 }
 fn default_webhook_events() -> Vec<ConfiguredWebhookEvent> { vec![ConfiguredWebhookEvent::IncomingMessage] }
 fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
-fn default_international_format_only() -> bool { true }
+fn default_true() -> bool { true }
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where

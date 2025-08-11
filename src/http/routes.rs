@@ -2,7 +2,7 @@ use std::str::FromStr;
 use anyhow::{anyhow, bail};
 use axum::extract::State;
 use pdu_rs::pdu::{PduAddress, TypeOfNumber};
-use crate::{AppState, http_post_handler, http_modem_handler};
+use crate::{http_post_handler, http_modem_handler};
 use crate::http::get_modem_json_result;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};

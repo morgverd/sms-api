@@ -3,7 +3,7 @@
 macro_rules! http_modem_handler {
     ($fn_name:ident, $modem_req:expr) => {
         pub async fn $fn_name(
-            State(state): State<AppState>
+            State(state): State<crate::app::HttpState>
         ) -> crate::http::types::JsonResult<crate::modem::types::ModemResponse> {
             get_modem_json_result(state, $modem_req).await
         }
@@ -19,11 +19,11 @@ macro_rules! http_post_handler {
         |$state:ident, $payload:ident| $db_call:block
     ) => {
         pub async fn $fn_name(
-            axum::extract::State($state): axum::extract::State<AppState>,
+            axum::extract::State($state): axum::extract::State<crate::app::HttpState>,
             payload: Option<axum::Json<$request_type>>
         ) -> crate::http::types::JsonResult<$response_type> {
             async fn inner(
-                $state: AppState,
+                $state: crate::app::HttpState,
                 $payload: Option<$request_type>,
             ) -> anyhow::Result<$response_type> {
                 $db_call
@@ -56,11 +56,11 @@ macro_rules! http_post_handler {
         |$state:ident, $payload:ident| $db_call:block
     ) => {
         pub async fn $fn_name(
-            axum::extract::State($state): axum::extract::State<AppState>,
+            axum::extract::State($state): axum::extract::State<crate::app::HttpState>,
             axum::Json($payload): axum::Json<$request_type>
         ) -> crate::http::types::JsonResult<$response_type> {
             async fn inner(
-                $state: AppState,
+                $state: crate::app::HttpState,
                 $payload: $request_type,
             ) -> anyhow::Result<$response_type> {
                 $db_call

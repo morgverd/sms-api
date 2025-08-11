@@ -1,7 +1,6 @@
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use crate::modem::types::ModemResponse;
 
 pub type JsonResult<T> = Result<Json<HttpResponse<T>>, (StatusCode, Json<HttpResponse<T>>)>;
 
