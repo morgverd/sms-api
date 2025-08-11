@@ -4,7 +4,7 @@ Send and receive SMS messages via a GSM modem.
 
 ## Features
 
-- Optional HTTP server to send modem operations and access database.
+- Optional HTTP server to send modem operations and access database (with optional token authorization).
 - HTTP webhook support for different events (incoming, outgoing, delivery).
 - **All incoming and outgoing SMS message content is stored encrypted.**
 - Handles SMS delivery reports, updating send status when received.
@@ -185,6 +185,4 @@ Sequential delivery makes partial reception unlikely but possible.
 
 - Support both Postgres and SQLite as database options (or just Postgres).
 - Make database message storage entirely optional?
-- Add API basic authentication.
 - Properly document API routes.
-- Finish Sentry integration including heartbeat monitor.

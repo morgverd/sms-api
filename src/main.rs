@@ -8,6 +8,7 @@ pub mod app;
 use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
+use dotenv::dotenv;
 use crate::app::AppHandles;
 
 #[cfg(feature = "sentry")]
@@ -16,7 +17,6 @@ use {
     std::sync::Arc,
     std::time::Duration
 };
-
 
 #[cfg(feature = "sentry")]
 pub type SentryGuard = Option<sentry::ClientInitGuard>;
@@ -81,6 +81,8 @@ fn init_sentry(
 }
 
 fn main() -> Result<()> {
+    dotenv().ok();
+
     let logger = env_logger::Builder::from_default_env().build();
     let args = CliArguments::parse();
     let config = config::AppConfig::load(args.config)?;

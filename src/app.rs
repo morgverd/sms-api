@@ -168,7 +168,7 @@ impl AppHandles {
         let app_state = HttpState { sms_manager, config };
 
         let handle = tokio::spawn(async move {
-            let app = create_app(app_state, _sentry);
+            let app = create_app(app_state, _sentry).expect("Failed to create HTTP app!");
             let listener = tokio::net::TcpListener::bind(address)
                 .await
                 .expect("Failed to bind to address");

@@ -33,6 +33,7 @@ line_buffer_size = 4096
 [http]
 # If the HTTP server should be started. By default, this is false. Without the HTTP server, this effectively just
 # becomes an SMS reciever which can use the webhooks to forward them since the HTTP API is required for sending.
+# There should also be an SMS_API_HTTP_TOKEN environment variable set to authenticate HTTP requests.
 enabled = true
 
 # The bind address used for the HTTP TcpListener.
@@ -41,6 +42,10 @@ address = "0.0.0.0:3000"
 # Should the SMS Send route only accept international number formats (eg: +44....)?
 # This prevents sending to internal carrier numbers which could be used to check balance etc.
 send_international_format_only = true
+
+# This determines if a missing SMS_API_HTTP_TOKEN should trigger a panic.
+# If disabled, the environment variable becomes optional.
+require_authentication = true
 
 # --------------------------------------------------------------------------------
 # [OPTIONAL] Sentry error tracking and monitoring (requires sentry feature to be enabled)
