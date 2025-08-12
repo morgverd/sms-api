@@ -1,6 +1,6 @@
 use std::mem::take;
 use std::time::Instant;
-use log::{debug, error, warn};
+use tracing::log::{debug, error, warn};
 use tokio::sync::mpsc;
 use anyhow::{bail, Result};
 use crate::modem::buffer::LineEvent;

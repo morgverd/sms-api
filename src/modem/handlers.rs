@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use log::{debug, warn};
+use tracing::log::{debug, warn};
 use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::sync::mpsc;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};

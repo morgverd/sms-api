@@ -6,9 +6,12 @@ pub mod webhooks;
 pub mod app;
 
 use std::path::PathBuf;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use dotenv::dotenv;
+use tracing_subscriber::{fmt, reload, EnvFilter, Registry};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use crate::app::AppHandles;
 
 pub const VERSION: &str = if cfg!(feature = "sentry") {
@@ -27,21 +30,9 @@ struct CliArguments {
     config: Option<PathBuf>
 }
 
-fn set_boxed_logger(boxed_logger: Box<dyn log::Log>) -> Result<()> {
-    log::set_boxed_logger(boxed_logger).context("Failed to set logger")?;
-    log::set_max_level(log::LevelFilter::Trace);
-    Ok(())
-}
-
 #[cfg(feature = "sentry")]
-fn init_sentry(
-    config: &config::SentryConfig,
-    logger: env_logger::Logger
-) -> Result<sentry::ClientInitGuard> {
-    log::debug!("Initializing Sentry integration");
-
-    let sentry_logger = sentry_log::SentryLogger::with_dest(logger);
-    set_boxed_logger(Box::new(sentry_logger))?;
+fn init_sentry(config: &config::SentryConfig) -> Result<sentry::ClientInitGuard> {
+    tracing::log::debug!("Initializing Sentry integration");
 
     let panic_integration = sentry_panic::PanicIntegration::default().add_extractor(|_| None);
     let guard = sentry::init((config.dsn.clone(), sentry::ClientOptions {
@@ -52,7 +43,7 @@ fn init_sentry(
         release: sentry::release_name!(),
         integrations: vec![std::sync::Arc::new(panic_integration)],
         before_send: Some(std::sync::Arc::new(|event| {
-            log::warn!(
+            tracing::log::warn!(
                 "Sending to Sentry: {}",
                 event.message.as_deref().or_else(|| {
                     event.exception.values.iter()
@@ -65,36 +56,51 @@ fn init_sentry(
         ..Default::default()
     }));
 
-    log::info!("Sentry integration initialized");
+    tracing::log::info!("Sentry integration initialized");
     Ok(guard)
+}
+
+pub type TracingReloadHandle = reload::Handle<EnvFilter, Registry>;
+
+fn init_tracing() -> TracingReloadHandle {
+    let (filter_layer, reload_handle) = reload::Layer::new(
+        EnvFilter::from_default_env()
+    );
+
+    let registry = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt::layer());
+
+    #[cfg(feature = "sentry")]
+    let registry = registry.with(sentry_tracing::layer());
+
+    registry.init();
+    reload_handle
 }
 
 fn main() -> Result<()> {
     dotenv().ok();
 
-    let logger = env_logger::Builder::from_default_env().build();
+    let tracing_reload = init_tracing();
     let args = CliArguments::parse();
     let config = config::AppConfig::load(args.config)?;
 
     #[cfg(feature = "sentry")]
-    let _sentry_guard = match config.sentry.as_ref() {
-        Some(sentry_config) => Some(init_sentry(sentry_config, logger)?),
-        None => set_boxed_logger(Box::new(logger)).map(|_| None)?
-    };
+    let _sentry_guard = config.sentry.as_ref().map(init_sentry).transpose()?;
 
     #[cfg(not(feature = "sentry"))]
-    let _sentry_guard = set_boxed_logger(Box::new(logger)).map(|_| None)?;
+    let _sentry_guard = None;
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
         .block_on(async move {
-            let handles = AppHandles::create(config, _sentry_guard).await?;
+            let handles = AppHandles::create(config, tracing_reload, _sentry_guard).await?;
             handles.run().await;
 
             #[cfg(feature = "sentry")]
             {
-                log::info!("Flushing Sentry events before shutdown...");
+                tracing::log::info!("Flushing Sentry events before shutdown...");
                 if let Some(client) = sentry::Hub::current().client() {
                     client.flush(Some(std::time::Duration::from_secs(5)));
                 }

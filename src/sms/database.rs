@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{anyhow, Result};
-use log::debug;
+use tracing::log::debug;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Row, SqlitePool};
 use crate::config::DatabaseConfig;

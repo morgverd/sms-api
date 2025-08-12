@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::oneshot;
 use anyhow::{anyhow, bail, Result};
-use log::{debug, error};
+use tracing::log::{debug, error};
 use crate::modem::types::{ModemRequest, ModemResponse};
 
 static COMMAND_SEQUENCE: AtomicU32 = AtomicU32::new(1);

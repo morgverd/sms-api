@@ -5,7 +5,7 @@ mod encryption;
 use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{bail, Result};
-use log::{debug, warn};
+use tracing::log::{debug, warn};
 use pdu_rs::gsm_encoding::GsmMessageData;
 use pdu_rs::pdu::{DataCodingScheme, MessageType, PduFirstOctet, SubmitPdu, VpFieldValidity};
 use tokio::sync::Mutex;

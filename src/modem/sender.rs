@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{anyhow, bail};
-use log::{debug, error};
+use tracing::log::{debug, error};
 use tokio::sync::{oneshot, mpsc};
 use anyhow::Result;
 use crate::modem::commands::{next_command_sequence, OutgoingCommand};

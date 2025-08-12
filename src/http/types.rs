@@ -58,6 +58,11 @@ pub struct SendSmsRequest {
     pub content: String
 }
 
+#[derive(Deserialize)]
+pub struct SetLogLevelRequest {
+    pub level: String
+}
+
 #[derive(Serialize)]
 pub struct SendSmsResponse {
     pub message_id: i64,

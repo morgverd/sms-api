@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use futures::{stream, StreamExt};
-use log::{debug, error, info};
+use tracing::log::{debug, error, info};
 use reqwest::Client;
 use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
@@ -156,15 +156,9 @@ impl WebhookWorker {
                 let event = Arc::clone(&event);
                 let client = &self.client;
 
+                // TODO: Maybe re-queue failed webhooks?
                 async move {
-                    let result = Self::execute_webhook(
-                        webhook,
-                        &client,
-                        &event
-                    ).await;
-
-                    // TODO: Maybe re-queue failed webhooks?
-                    match result {
+                    match Self::execute_webhook(webhook, &client, &event).await {
                         Ok(()) => debug!("Webhook #{} for task #{} was sent successfully!", webhook_idx, task_idx),
                         Err(e) => error!("Failed to send Webhook #{} for task #{} with error: {}", webhook_idx, task_idx, e)
                     }

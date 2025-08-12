@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{anyhow, Result, Error};
-use log::debug;
+use tracing::log::debug;
 use pdu_rs::pdu::{MessageStatus, PduAddress};
 use pdu_rs::gsm_encoding::udh::UserDataHeader;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

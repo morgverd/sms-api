@@ -2,10 +2,11 @@ use std::str::FromStr;
 use anyhow::{anyhow, bail};
 use axum::extract::State;
 use pdu_rs::pdu::{PduAddress, TypeOfNumber};
+use tracing_subscriber::EnvFilter;
 use crate::http::get_modem_json_result;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
-use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse};
+use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest};
 
 macro_rules! http_response_handler {
     ($result:expr) => {
@@ -101,12 +102,6 @@ macro_rules! http_modem_handler {
     };
 }
 
-http_get_handler!(
-    get_version,
-    &'static str,
-    { Ok(crate::VERSION) }
-);
-
 http_post_handler!(
     db_sms,
     PhoneNumberFetchRequest,
@@ -174,3 +169,23 @@ http_modem_handler!(sms_get_signal_strength, ModemRequest::GetSignalStrength);
 http_modem_handler!(sms_get_network_operator, ModemRequest::GetNetworkOperator);
 http_modem_handler!(sms_get_service_provider, ModemRequest::GetServiceProvider);
 http_modem_handler!(sms_get_battery_level, ModemRequest::GetBatteryLevel);
+
+http_get_handler!(
+    sys_version,
+    &'static str,
+    { Ok(crate::VERSION) }
+);
+
+http_post_handler!(
+    sys_set_log_level,
+    SetLogLevelRequest,
+    bool,
+    |state, payload| {
+        let filter = EnvFilter::from_str(&payload.level)?;
+        tracing::log::info!("Setting log level to {} via API.", filter);
+        
+        state.tracing_reload.reload(filter)
+            .map(|_| true)
+            .map_err(|e| anyhow!(e))
+    }
+);

@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{bail, Result};
-use log::{debug, error, info, warn};
+use tracing::log::{debug, error, info, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
@@ -9,6 +9,7 @@ use crate::http::create_app;
 use crate::modem::ModemManager;
 use crate::modem::types::ModemIncomingMessage;
 use crate::sms::{SMSManager, SMSReceiver};
+use crate::TracingReloadHandle;
 use crate::webhooks::{WebhookEvent, WebhookSender};
 
 macro_rules! tokio_select_with_logging {
@@ -31,7 +32,8 @@ pub type SentryGuard = Option<()>;
 #[derive(Clone)]
 pub struct HttpState {
     pub sms_manager: SMSManager,
-    pub config: HTTPConfig
+    pub config: HTTPConfig,
+    pub tracing_reload: TracingReloadHandle
 }
 
 pub struct AppHandles {
@@ -47,6 +49,7 @@ pub struct AppHandles {
 impl AppHandles {
     pub async fn create(
         config: AppConfig,
+        tracing_reload: TracingReloadHandle,
         _sentry_guard: SentryGuard
     ) -> Result<AppHandles> {
 
@@ -62,12 +65,14 @@ impl AppHandles {
         let sms_manager = SMSManager::connect(config.database, modem_sender, webhooks_sender_opt.clone()).await?;
 
         let (receiver_cleanup_handle, receiver_channel_handle) = Self::create_receiver(sms_manager.clone(), webhooks_sender_opt.clone(), main_rx);
+        let http_opt = Self::try_create_http(sms_manager.clone(), config.http, tracing_reload, _sentry_guard.is_some());
+
         let handles = AppHandles {
             modem: modem_handle,
             modem_cleanup: receiver_cleanup_handle,
             modem_channel: receiver_channel_handle,
-            http_opt: Self::try_create_http(sms_manager.clone(), config.http, _sentry_guard.is_some()),
             webhooks_opt: webhooks_handle,
+            http_opt,
             _sentry_guard
         };
         Ok(handles)
@@ -162,6 +167,7 @@ impl AppHandles {
     fn try_create_http(
         sms_manager: SMSManager,
         config: HTTPConfig,
+        tracing_reload: TracingReloadHandle,
         _sentry: bool
     ) -> Option<JoinHandle<()>> {
         if !config.enabled {
@@ -170,7 +176,7 @@ impl AppHandles {
         }
 
         let address = config.address;
-        let app = create_app(HttpState { sms_manager, config }, _sentry).expect("Failed to create HTTP app!");
+        let app = create_app(HttpState { sms_manager, config, tracing_reload }, _sentry).expect("Failed to create HTTP app!");
 
         let handle = tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(address)

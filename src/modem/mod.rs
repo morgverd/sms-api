@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use log::error;
+use tracing::log::error;
 use tokio::sync::mpsc;
 use tokio_serial::SerialPortBuilderExt;
 use crate::config::ModemConfig;

@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{anyhow, Result};
-use log::{debug, error, info, warn};
+use tracing::log::{debug, error, info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::time::interval;

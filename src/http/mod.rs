@@ -3,7 +3,7 @@ mod types;
 
 use anyhow::{bail, Result};
 use axum::routing::{get, post};
-use log::{info, warn};
+use tracing::log::{info, warn};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use crate::http::routes::*;
@@ -66,7 +66,6 @@ async fn auth_middleware(
 
 pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
     let mut router = axum::Router::new()
-        .route("/version", get(get_version))
         .route("/db/sms", post(db_sms))
         .route("/db/latest-numbers", post(db_latest_numbers))
         .route("/db/delivery-reports", post(db_delivery_reports))
@@ -76,6 +75,8 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
         .route("/sms/network-operator", get(sms_get_network_operator))
         .route("/sms/service-provider", get(sms_get_service_provider))
         .route("/sms/battery-level", get(sms_get_battery_level))
+        .route("/sys/version", get(sys_version))
+        .route("/sys/set-log-level", post(sys_set_log_level))
         .layer(
             ServiceBuilder::new().layer(CorsLayer::permissive())
         );
@@ -97,7 +98,7 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
     // If Sentry is enabled, include axum integration layers.
     #[cfg(feature = "sentry")]
     if _sentry {
-        log::debug!("Adding Sentry Axum layer");
+        tracing::log::debug!("Adding Sentry Axum layer");
         router = router
             .layer(
                 ServiceBuilder::new().layer(NewSentryLayer::<axum::http::Request<axum::body::Body>>::new_from_top())
