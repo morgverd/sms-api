@@ -75,6 +75,8 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
         .route("/sms/network-operator", get(sms_get_network_operator))
         .route("/sms/service-provider", get(sms_get_service_provider))
         .route("/sms/battery-level", get(sms_get_battery_level))
+        .route("/gnss/status", get(gnss_get_status))
+        .route("/gnss/location", get(gnss_get_location))
         .route("/sys/version", get(sys_version))
         .route("/sys/set-log-level", post(sys_set_log_level))
         .layer(

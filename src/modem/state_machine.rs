@@ -101,9 +101,7 @@ impl ModemStateMachine {
         };
 
         warn!("Command {} timed out!", command.sequence);
-        command.respond(ModemResponse::Error {
-            message: "Command timed out!".to_string()
-        }).await.map(|_| true)
+        command.respond(ModemResponse::Error("Command timed out!".to_string())).await.map(|_| true)
     }
 
     pub async fn transition_state(
@@ -200,7 +198,6 @@ impl ModemStateMachine {
         match event {
             ModemEvent::Prompt(content) => {
                 debug!("Processing prompt: {:?}", content);
-                // Don't add prompt to response buffer - it's not part of the command response
 
                 match self.handlers.prompt_handler(&execution.command.request).await {
                     Ok(Some(new_state)) => {
@@ -208,18 +205,12 @@ impl ModemStateMachine {
                         Ok(StateMachineState::Command(execution))
                     }
                     Ok(None) => {
-                        let response = ModemResponse::Error {
-                            message: "Command completed during prompt handling".to_string()
-                        };
-                        execution.command.respond(response).await?;
+                        execution.command.respond(ModemResponse::Error("Command completed during prompt handling".to_string())).await?;
                         Ok(StateMachineState::Idle)
                     },
                     Err(e) => {
                         error!("Prompt handler error: {e}");
-                        let response = ModemResponse::Error {
-                            message: format!("Prompt handler error: {e}")
-                        };
-                        execution.command.respond(response).await?;
+                        execution.command.respond(ModemResponse::Error(format!("Prompt handler error: {e}"))).await?;
                         Ok(StateMachineState::Idle)
                     }
                 }
@@ -237,10 +228,7 @@ impl ModemStateMachine {
                             Ok(StateMachineState::Idle)
                         },
                         Err(e) => {
-                            let error_response = ModemResponse::Error {
-                                message: e.to_string()
-                            };
-                            execution.command.respond(error_response).await?;
+                            execution.command.respond(ModemResponse::Error(e.to_string())).await?;
                             Ok(StateMachineState::Idle)
                         }
                     }

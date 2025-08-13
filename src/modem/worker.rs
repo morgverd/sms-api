@@ -146,9 +146,7 @@ impl ModemWorker {
 
                     // Reject any pending commands
                     while let Ok(mut cmd) = command_rx.try_recv() {
-                        let _ = cmd.respond(ModemResponse::Error {
-                            message: "Modem is shutting down".to_string()
-                        }).await;
+                        let _ = cmd.respond(ModemResponse::Error("Modem is shutting down".to_string())).await;
                     }
 
                     // Wait a bit then transition to offline
@@ -168,9 +166,7 @@ impl ModemWorker {
 
                         // Reject commands immediately when offline
                         Some(mut cmd) = command_rx.recv() => {
-                            let _ = cmd.respond(ModemResponse::Error {
-                                message: "Modem is offline".to_string()
-                            }).await;
+                            let _ = cmd.respond(ModemResponse::Error("Modem is offline".to_string())).await;
                         },
 
                         // Attempt reconnection
@@ -256,7 +252,7 @@ impl ModemWorker {
     }
 
     async fn initialize_modem(&mut self) -> Result<()> {
-        let initialization_commands: Vec<(&[u8], &[u8])> = vec![
+        let mut initialization_commands: Vec<(&[u8], &[u8])> = vec![
             (b"ATZ\r\n", b"OK"),                // Reset
             (b"AT\r\n", b"OK"),                 // Test connection
             (b"ATE0\r\n", b"OK"),               // Disable echo
@@ -266,6 +262,13 @@ impl ModemWorker {
             (b"AT+CSMP=49,167,0,0\r\n", b"OK"), // Receive delivery receipts from sent messages
             (b"AT+CPMS=\"ME\",\"ME\",\"ME\"\r\n", b"+CPMS:") // Store all messages in memory only
         ];
+
+        // If GNSS is enabled power it on and start its receiver.
+        if self.config.gnss_enabled {
+            info!("The GNSS module is enabled! Powering on...");
+            initialization_commands.push((b"AT+CGNSPWR=1\r\n", b"OK")); // Power on
+            initialization_commands.push((b"AT+CGPSRST=0\r\n", b"OK")); // Cold start
+        }
 
         for (command, expected) in initialization_commands {
             let command_str = String::from_utf8_lossy(command);
@@ -278,7 +281,6 @@ impl ModemWorker {
             let expected_str = String::from_utf8_lossy(expected);
 
             debug!("Response: {}", response_str.trim());
-
             if !response_str.contains(&*expected_str) {
                 return Err(anyhow!(
                     "Initialization command '{}' failed. Expected: '{}', Got: '{}'",
@@ -297,7 +299,7 @@ impl ModemWorker {
 
         let timeout = Duration::from_millis(50);
         tokio::time::timeout(
-            Duration::from_secs(5),
+            Duration::from_secs(10),
             async {
                 loop {
                     match self.port.try_read(&mut buf) {

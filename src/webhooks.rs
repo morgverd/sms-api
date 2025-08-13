@@ -8,7 +8,7 @@ use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSMessage};
 use crate::modem::types::ModemStatus;
@@ -16,7 +16,7 @@ use crate::modem::types::ModemStatus;
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WebhookEvent {
     #[serde(rename = "incoming")]

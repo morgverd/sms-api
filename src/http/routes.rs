@@ -157,8 +157,8 @@ http_post_handler!(
 
         let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;
         match response {
-            ModemResponse::SendResult { reference_id } => Ok(SendSmsResponse { message_id, reference_id }),
-            ModemResponse::Error { message } => Err(anyhow!(message)),
+            ModemResponse::SendResult(reference_id) => Ok(SendSmsResponse { message_id, reference_id }),
+            ModemResponse::Error(message) => Err(anyhow!(message)),
             _ => Err(anyhow!("Invalid ModemResponse for sending an SMS request!"))
         }
     }
@@ -169,6 +169,8 @@ http_modem_handler!(sms_get_signal_strength, ModemRequest::GetSignalStrength);
 http_modem_handler!(sms_get_network_operator, ModemRequest::GetNetworkOperator);
 http_modem_handler!(sms_get_service_provider, ModemRequest::GetServiceProvider);
 http_modem_handler!(sms_get_battery_level, ModemRequest::GetBatteryLevel);
+http_modem_handler!(gnss_get_status, ModemRequest::GetGNSSStatus);
+http_modem_handler!(gnss_get_location, ModemRequest::GetGNSSLocation);
 
 http_get_handler!(
     sys_version,

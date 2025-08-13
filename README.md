@@ -8,6 +8,7 @@ Send and receive SMS messages via a GSM modem.
 - HTTP webhook support for different events (incoming, outgoing, delivery).
 - **All incoming and outgoing SMS message content is stored encrypted.**
 - Handles SMS delivery reports, updating send status when received.
+- Supports GNSS location tracking, this can be disabled in the config.
 - Allows unsolicited notifications to interrupt command execution for immediate updates.
 - Optional Sentry client integration (must be built with `sentry` feature).
 - Provides [pdu-rs](https://github.com/morgverd/pdu-rs) crate for SMS PDU parsing.
@@ -164,19 +165,21 @@ is re-established. The data is the ModemStatus.
 
 ### HTTP Routes
 
-| Route                       | AT Command | Description                                                                              |
-|-----------------------------|------------|------------------------------------------------------------------------------------------|
-| `GET /sys/version`          | -          | Get the current build `version` content.                                                 |
-| `POST /sys/set-log-level`   | -          | Set the tracing level filter for stdout, useful for live debugging.                      |
-| `POST /db/sms`              | -          | Query messages to and from a `phone_number` with pagination.                             |
-| `POST /db/latest-numbers`   | -          | Query all latest numbers (sender or receiver) with optional pagination.                  |
-| `POST /db/delivery-reports` | -          | Query all delivery reports for a `message_id` with optional pagination.                  |
-| `POST /sms/send`            | `AT+CMGS`  | Send message `content` with a `to` target.                                               |
-| `GET /sms/network-status`   | `AT+CREG?` | Get information about the registration status and access technology of the serving cell. |
-| `GET /sms/signal-strength`  | `AT+CSQ`   | Get signal strength `rssi` and `ber` values.                                             |
-| `GET /sms/network-operator` | `AT+COPS?` | Get the network operator ID, status and name.                                            |
-| `GET /sms/service-provider` | `AT+CSPN?` | Get the the service provider name from the SIM.                                          |
-| `GET /sms/battery-level`    | `AT+CBC`   | Get the device battery `status`, `charge` and `voltage`.                                 |
+| Route                       | AT Command       | Description                                                                              |
+|-----------------------------|------------------|------------------------------------------------------------------------------------------|
+| `POST /sms/send`            | `AT+CMGS`        | Send message `content` with a `to` target.                                               |
+| `GET /sms/network-status`   | `AT+CREG?`       | Get information about the registration status and access technology of the serving cell. |
+| `GET /sms/signal-strength`  | `AT+CSQ`         | Get signal strength `rssi` and `ber` values.                                             |
+| `GET /sms/network-operator` | `AT+COPS?`       | Get the network operator ID, status and name.                                            |
+| `GET /sms/service-provider` | `AT+CSPN?`       | Get the the service provider name from the SIM.                                          |
+| `GET /sms/battery-level`    | `AT+CBC`         | Get the device battery `status`, `charge` and `voltage`.                                 |
+| `GET /gnss/status`          | `AT+CGPSSTATUS?` | Get the GNSS fix status (unknown, notfix, fix2d, fix3d).                                 |
+| `GET /gnss/location`        | `AT+CGPSINF=2`   | Get the GNSS location (longitude, latitude, altitude, utc_time).                         |
+| `POST /db/sms`              | -                | Query messages to and from a `phone_number` with pagination.                             |
+| `POST /db/latest-numbers`   | -                | Query all latest numbers (sender or receiver) with optional pagination.                  |
+| `POST /db/delivery-reports` | -                | Query all delivery reports for a `message_id` with optional pagination.                  |
+| `GET /sys/version`          | -                | Get the current build `version` content.                                                 |
+| `POST /sys/set-log-level`   | -                | Set the tracing level filter for stdout, useful for live debugging.                      |
 
 ## Limitations
 

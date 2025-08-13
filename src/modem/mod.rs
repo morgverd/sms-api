@@ -15,6 +15,7 @@ mod commands;
 mod handlers;
 mod state_machine;
 mod worker;
+mod parsers;
 
 pub struct ModemManager {
     config: ModemConfig,

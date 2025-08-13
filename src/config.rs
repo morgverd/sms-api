@@ -50,6 +50,9 @@ pub struct ModemConfig {
     #[serde(default = "default_modem_baud")]
     pub baud: u32,
 
+    #[serde(default = "default_true")]
+    pub gnss_enabled: bool,
+
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
     pub cmd_channel_buffer_size: usize,
@@ -65,6 +68,7 @@ impl Default for ModemConfig {
         Self {
             device: default_modem_device(),
             baud: default_modem_baud(),
+            gnss_enabled: default_true(),
             cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
             read_buffer_size: default_modem_read_buffer_size(),
             line_buffer_size: default_modem_read_buffer_size()

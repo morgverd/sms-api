@@ -88,11 +88,11 @@ impl SMSManager {
 
         let mut new_message = SMSMessage::from(message);
         let send_failure = match &last_response {
-            ModemResponse::SendResult { reference_id } => {
+            ModemResponse::SendResult(reference_id) => {
                 new_message.message_reference.replace(*reference_id);
                 None
             },
-            ModemResponse::Error { message: error_message } => {
+            ModemResponse::Error(error_message) => {
                 new_message.status = SMSStatus::PermanentFailure;
                 Some(error_message)
             },
