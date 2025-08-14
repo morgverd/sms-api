@@ -13,7 +13,7 @@ use crate::modem::types::{ModemIncomingMessage, ModemResponse, ModemStatus};
 
 macro_rules! init_cmd {
     ($cmd:expr, $resp:expr) => {
-        ($cmd.to_string(), $resp.as_bytes().to_vec())
+        ($cmd.as_bytes().to_vec(), $resp.as_bytes().to_vec())
     };
 }
 
@@ -258,7 +258,7 @@ impl ModemWorker {
     }
 
     async fn initialize_modem(&mut self) -> Result<()> {
-        let mut initialization_commands: Vec<(String, Vec<u8>)> = vec![
+        let mut initialization_commands: Vec<(Vec<u8>, Vec<u8>)> = vec![
             init_cmd!("ATZ\r\n", "OK"),                // Reset
             init_cmd!("AT\r\n", "OK"),                 // Test connection
             init_cmd!("ATE0\r\n", "OK"),               // Disable echo
@@ -276,14 +276,14 @@ impl ModemWorker {
             initialization_commands.push(init_cmd!("AT+CGPSRST=0\r\n", "OK")); // Cold start
 
             // Create GNSS report interval command (0 = disabled).
-            let interval_command= format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval);
+            let interval_command = format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval).as_bytes().to_vec();
             initialization_commands.push((interval_command, b"OK".to_vec())); // Set navigation URC report interval
         }
 
         for (command, expected) in initialization_commands {
-            debug!("Sending initialization command: {}", command.trim());
+            debug!("Sending initialization command: {:?}", command);
 
-            self.port.write_all(command.as_bytes()).await?;
+            self.port.write_all(&*command).await?;
 
             let response = self.read_response_until_ok().await?;
             let response_str = String::from_utf8_lossy(&response);
@@ -292,8 +292,8 @@ impl ModemWorker {
             debug!("Response: {}", response_str.trim());
             if !response_str.contains(&*expected_str) {
                 return Err(anyhow!(
-                    "Initialization command '{}' failed. Expected: '{}', Got: '{}'",
-                    command.trim(), expected_str, response_str.trim()
+                    "Initialization command '{:?}' failed. Expected: '{}', Got: '{}'",
+                    command, expected_str, response_str.trim()
                 ));
             }
         }
