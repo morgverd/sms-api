@@ -163,6 +163,34 @@ is re-established. The data is the ModemStatus.
 }
 ```
 
+### GNSS Position Report
+
+This event is sent from the GNSS module when `modem.gnss_enabled` is enabled. Every `modem.gnss_report_interval` (config, defaults to `0` which is disabled) interval it will
+broadcast a position GPS position report with longitude, latitude, speed, etc.
+
+```json
+{
+  "type": "gnss_position_report",
+  "data": {
+    "run_status":true,
+    "fix_status":true,
+    "utc_time": 4294967295,
+    "latitude": 35.126122,
+    "longitude": -106.536530,
+    "msl_altitude": 30.250,
+    "ground_speed": 0.0,
+    "ground_course": 16.2,
+    "fix_mode": "Fix3D",
+    "hdop": 0.7,
+    "pdop": 0.9,
+    "vdop": 0.6,
+    "gps_in_view": 13,
+    "gnss_used": 13,
+    "glonass_in_view": 10
+  }
+}
+```
+
 ### HTTP Routes
 
 | Route                       | AT Command       | Description                                                                              |

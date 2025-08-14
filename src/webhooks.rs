@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSMessage};
-use crate::modem::types::ModemStatus;
+use crate::modem::types::{GNSSLocation, ModemStatus};
 
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -35,7 +35,10 @@ pub enum WebhookEvent {
     ModemStatusUpdate {
         previous: ModemStatus,
         current: ModemStatus
-    }
+    },
+
+    #[serde(rename = "gnss_position_report")]
+    GNSSPositionReport(GNSSLocation)
 }
 impl WebhookEvent {
 
@@ -45,7 +48,8 @@ impl WebhookEvent {
             WebhookEvent::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
             WebhookEvent::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
             WebhookEvent::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport,
-            WebhookEvent::ModemStatusUpdate { .. } => ConfiguredWebhookEvent::ModemStatusUpdate
+            WebhookEvent::ModemStatusUpdate { .. } => ConfiguredWebhookEvent::ModemStatusUpdate,
+            WebhookEvent::GNSSPositionReport(_) => ConfiguredWebhookEvent::GNSSPositionReport
         }
     }
 }

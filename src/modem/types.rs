@@ -105,7 +105,8 @@ pub enum UnsolicitedMessageType {
     IncomingSMS,
     DeliveryReport,
     NetworkStatusChange,
-    ShuttingDown
+    ShuttingDown,
+    GNSSPositionReport
 }
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
@@ -115,6 +116,8 @@ impl UnsolicitedMessageType {
             Some(UnsolicitedMessageType::DeliveryReport)
         } else if header.starts_with("+CGREG:") {
             Some(UnsolicitedMessageType::NetworkStatusChange)
+        } else if header.starts_with("+UGNSINF") {
+            Some(UnsolicitedMessageType::GNSSPositionReport)
         } else {
             match header {
                 "NORMAL POWER DOWN" | "POWER DOWN" | "SHUTDOWN" | "POWERING DOWN" => {
@@ -129,6 +132,7 @@ impl UnsolicitedMessageType {
     pub fn has_next_line(&self) -> bool {
         match self {
             UnsolicitedMessageType::ShuttingDown => false,
+            UnsolicitedMessageType::GNSSPositionReport => false,
             _ => true
         }
     }
@@ -142,10 +146,11 @@ pub enum ModemIncomingMessage {
         previous: ModemStatus,
         current: ModemStatus
     },
-    NetworkStatusChange(u8)
+    NetworkStatusChange(u8),
+    GNSSPositionReport(GNSSLocation)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub enum GNSSFixStatus {
     Unknown,
     NotFix,
@@ -165,18 +170,28 @@ impl TryFrom<&str> for GNSSFixStatus {
         }
     }
 }
+impl From<u8> for GNSSFixStatus {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => GNSSFixStatus::NotFix,
+            1 => GNSSFixStatus::Fix2D,
+            2 => GNSSFixStatus::Fix3D,
+            _ => GNSSFixStatus::Unknown
+        }
+    }
+}
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GNSSLocation {
-    run_status: u8,
-    fix_status: u8,
+    run_status: bool,
+    fix_status: bool,
     utc_time: u32,
     latitude: Option<f64>,
     longitude: Option<f64>,
     msl_altitude: Option<f64>,
     ground_speed: Option<f32>,
     ground_course: Option<f32>,
-    fix_mode: u8,
+    fix_mode: GNSSFixStatus,
     hdop: Option<f64>,
     pdop: Option<f64>,
     vdop: Option<f64>,
@@ -192,16 +207,17 @@ impl TryFrom<Vec<&str>> for GNSSLocation {
             bail!("Insufficient GNSS data fields got {}", fields.len());
         }
 
+        // Based on: https://simcom.ee/documents/SIM868/SIM868_GNSS_Application%20Note_V1.00.pdf
         Ok(Self {
-            run_status: fields[0].parse()?,
-            fix_status: fields[1].parse()?,
+            run_status: fields[0] == "1",
+            fix_status: fields[1] == "1",
             utc_time: fields[2].parse::<f64>().unwrap_or(0.0) as u32,
             latitude: fields[3].parse().ok(),
             longitude: fields[4].parse().ok(),
             msl_altitude: fields[5].parse().ok(),
             ground_speed: fields[6].parse().ok(),
             ground_course: fields[7].parse().ok(),
-            fix_mode: fields[8].parse()?,
+            fix_mode: GNSSFixStatus::from(fields[8].parse::<u8>().unwrap_or(0)),
             // Reserved1
             hdop: fields[10].parse().ok(),
             pdop: fields[11].parse().ok(),
@@ -211,5 +227,24 @@ impl TryFrom<Vec<&str>> for GNSSLocation {
             gnss_used: fields[15].parse().ok(),
             glonass_in_view: fields[16].parse().ok()
         })
+    }
+}
+impl Display for GNSSLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+
+        fn convert_opt<T: Display>(opt: &Option<T>) -> String {
+            match opt {
+                Some(value) => value.to_string(),
+                None => "None".to_string()
+            }
+        }
+
+        write!(f, "Lat: {}, Lon: {}, Alt: {}, Speed: {}, Course: {}",
+               convert_opt(&self.latitude),
+               convert_opt(&self.longitude),
+               convert_opt(&self.msl_altitude),
+               convert_opt(&self.ground_speed),
+               convert_opt(&self.ground_course)
+        )
     }
 }

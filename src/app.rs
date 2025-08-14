@@ -156,6 +156,11 @@ impl AppHandles {
                             });
                         }
                     },
+                    ModemIncomingMessage::GNSSPositionReport(location) => {
+                        if let Some(webhooks) = &webhooks_sender {
+                            webhooks.send(WebhookEvent::GNSSPositionReport(location));
+                        }
+                    },
                     _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)
                 };
             }

@@ -93,6 +93,9 @@ impl ModemEventHandlers {
                 warn!("The modem is shutting down!");
                 self.set_status(ModemStatus::ShuttingDown).await?;
                 Ok(None)
+            },
+            UnsolicitedMessageType::GNSSPositionReport => {
+                Ok(Some(ModemIncomingMessage::GNSSPositionReport(parse_cgnsinf_response(&content, true)?)))
             }
         }
     }
@@ -134,7 +137,7 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::GNSSStatus(parse_cgpsstatus_response(&response)?))
             },
             ModemRequest::GetGNSSLocation => {
-                Ok(ModemResponse::GNSSLocation(parse_cgnsinf_response(&response)?))
+                Ok(ModemResponse::GNSSLocation(parse_cgnsinf_response(&response, false)?))
             }
         }
     }

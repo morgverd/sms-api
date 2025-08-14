@@ -11,6 +11,12 @@ use crate::modem::commands::OutgoingCommand;
 use crate::modem::state_machine::ModemStateMachine;
 use crate::modem::types::{ModemIncomingMessage, ModemResponse, ModemStatus};
 
+macro_rules! init_cmd {
+    ($cmd:expr, $resp:expr) => {
+        ($cmd.to_string(), $resp.as_bytes().to_vec())
+    };
+}
+
 #[derive(Debug)]
 pub enum WorkerEvent {
     SetStatus(ModemStatus),
@@ -252,39 +258,42 @@ impl ModemWorker {
     }
 
     async fn initialize_modem(&mut self) -> Result<()> {
-        let mut initialization_commands: Vec<(&[u8], &[u8])> = vec![
-            (b"ATZ\r\n", b"OK"),                // Reset
-            (b"AT\r\n", b"OK"),                 // Test connection
-            (b"ATE0\r\n", b"OK"),               // Disable echo
-            (b"AT+CMGF=0\r\n", b"OK"),          // Set SMS message format to PDU
-            (b"AT+CSCS=\"GSM\"\r\n", b"OK"),    // Use GSM 7-bit alphabet
-            (b"AT+CNMI=2,2,0,1,0\r\n", b"OK"),  // Receive all incoming SMS messages and delivery reports
-            (b"AT+CSMP=49,167,0,0\r\n", b"OK"), // Receive delivery receipts from sent messages
-            (b"AT+CPMS=\"ME\",\"ME\",\"ME\"\r\n", b"+CPMS:") // Store all messages in memory only
+        let mut initialization_commands: Vec<(String, Vec<u8>)> = vec![
+            init_cmd!("ATZ\r\n", "OK"),                // Reset
+            init_cmd!("AT\r\n", "OK"),                 // Test connection
+            init_cmd!("ATE0\r\n", "OK"),               // Disable echo
+            init_cmd!("AT+CMGF=0\r\n", "OK"),          // Set SMS message format to PDU
+            init_cmd!("AT+CSCS=\"GSM\"\r\n", "OK"),    // Use GSM 7-bit alphabet
+            init_cmd!("AT+CNMI=2,2,0,1,0\r\n", "OK"),  // Receive all incoming SMS messages and delivery reports
+            init_cmd!("AT+CSMP=49,167,0,0\r\n", "OK"), // Receive delivery receipts from sent messages
+            init_cmd!("AT+CPMS=\"ME\",\"ME\",\"ME\"\r\n", "+CPMS:") // Store all messages in memory only
         ];
 
         // If GNSS is enabled power it on and start its receiver.
         if self.config.gnss_enabled {
-            info!("The GNSS module is enabled! Powering on...");
-            initialization_commands.push((b"AT+CGNSPWR=1\r\n", b"OK")); // Power on
-            initialization_commands.push((b"AT+CGPSRST=0\r\n", b"OK")); // Cold start
+            info!("The GNSS module is enabled with a report interval of {}! Powering on...", self.config.gnss_report_interval);
+            initialization_commands.push(init_cmd!("AT+CGNSPWR=1\r\n", "OK")); // Power on
+            initialization_commands.push(init_cmd!("AT+CGPSRST=0\r\n", "OK")); // Cold start
+
+            // Create GNSS report interval command (0 = disabled).
+            let interval_command= format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval);
+            initialization_commands.push((interval_command, b"OK".to_vec())); // Set navigation URC report interval
         }
 
         for (command, expected) in initialization_commands {
-            let command_str = String::from_utf8_lossy(command);
-            debug!("Sending initialization command: {}", command_str.trim());
+            debug!("Sending initialization command: {}", command.trim());
 
-            self.port.write_all(command).await?;
+            self.port.write_all(command.as_bytes()).await?;
 
             let response = self.read_response_until_ok().await?;
             let response_str = String::from_utf8_lossy(&response);
-            let expected_str = String::from_utf8_lossy(expected);
+            let expected_str = String::from_utf8_lossy(&*expected);
 
             debug!("Response: {}", response_str.trim());
             if !response_str.contains(&*expected_str) {
                 return Err(anyhow!(
                     "Initialization command '{}' failed. Expected: '{}', Got: '{}'",
-                    command_str.trim(), expected_str, response_str.trim()
+                    command.trim(), expected_str, response_str.trim()
                 ));
             }
         }

@@ -189,10 +189,11 @@ pub fn parse_cgpsstatus_response(response: &str) -> Result<GNSSFixStatus> {
     GNSSFixStatus::try_from(status_str)
 }
 
-pub fn parse_cgnsinf_response(response: &str) -> Result<GNSSLocation> {
+pub fn parse_cgnsinf_response(response: &str, unsolicited: bool) -> Result<GNSSLocation> {
+    let header = if unsolicited { "+UGNSINF" } else { "+CGNSINF" };
     let cgnsinf_line = response
         .lines()
-        .find(|line| line.trim().starts_with("+CGNSINF:"))
+        .find(|line| line.trim().starts_with(header))
         .ok_or(anyhow!("No CGNSINF response found in buffer"))?;
 
     let data_str = cgnsinf_line

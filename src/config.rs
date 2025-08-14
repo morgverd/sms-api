@@ -53,6 +53,9 @@ pub struct ModemConfig {
     #[serde(default = "default_true")]
     pub gnss_enabled: bool,
 
+    #[serde(default = "default_gnss_report_interval")]
+    pub gnss_report_interval: u8,
+
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
     pub cmd_channel_buffer_size: usize,
@@ -69,6 +72,7 @@ impl Default for ModemConfig {
             device: default_modem_device(),
             baud: default_modem_baud(),
             gnss_enabled: default_true(),
+            gnss_report_interval: default_gnss_report_interval(),
             cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
             read_buffer_size: default_modem_read_buffer_size(),
             line_buffer_size: default_modem_read_buffer_size()
@@ -124,7 +128,10 @@ pub enum ConfiguredWebhookEvent {
     DeliveryReport,
 
     #[serde(rename = "modem_status_update")]
-    ModemStatusUpdate
+    ModemStatusUpdate,
+
+    #[serde(rename = "gnss_position_report")]
+    GNSSPositionReport
 }
 
 #[cfg(feature = "sentry")]
@@ -176,6 +183,7 @@ fn default_modem_cmd_buffer_size() -> usize { 32 }
 fn default_modem_read_buffer_size() -> usize { 4096 }
 fn default_webhook_events() -> Vec<ConfiguredWebhookEvent> { vec![ConfiguredWebhookEvent::IncomingMessage] }
 fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
+fn default_gnss_report_interval() -> u8 { 0 }
 fn default_true() -> bool { true }
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
