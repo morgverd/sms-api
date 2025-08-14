@@ -29,7 +29,7 @@ impl ModemEventHandlers {
             ModemRequest::GetServiceProvider => self.write(b"AT+CSPN?\r\n").await?,
             ModemRequest::GetBatteryLevel => self.write(b"AT+CBC\r\n").await?,
             ModemRequest::GetGNSSStatus => self.write(b"AT+CGPSSTATUS?\r\n").await?,
-            ModemRequest::GetGNSSLocation => self.write(b"AT+CGPSINF=2\r\n").await?
+            ModemRequest::GetGNSSLocation => self.write(b"AT+CGNSINF\r\n").await?
         }
         Ok(CommandState::WaitingForData)
     }
@@ -134,7 +134,7 @@ impl ModemEventHandlers {
                 Ok(ModemResponse::GNSSStatus(parse_cgpsstatus_response(&response)?))
             },
             ModemRequest::GetGNSSLocation => {
-                Ok(ModemResponse::GNSSLocation(parse_cgpsinf_response(&response)?))
+                Ok(ModemResponse::GNSSLocation(parse_cgnsinf_response(&response)?))
             }
         }
     }

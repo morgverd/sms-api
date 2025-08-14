@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use crate::modem::types::{GNSSFixStatus, GNSSLocation};
 
 pub fn parse_cmgs_result(response: &str) -> Result<u8> {
@@ -189,20 +189,17 @@ pub fn parse_cgpsstatus_response(response: &str) -> Result<GNSSFixStatus> {
     GNSSFixStatus::try_from(status_str)
 }
 
-pub fn parse_cgpsinf_response(response: &str) -> Result<GNSSLocation> {
-    let cgps_line = response
+pub fn parse_cgnsinf_response(response: &str) -> Result<GNSSLocation> {
+    let cgnsinf_line = response
         .lines()
-        .find(|line| line.trim().starts_with("+CGPSINF:"))
-        .ok_or(anyhow!("No CGPSINF response found in buffer"))?;
+        .find(|line| line.trim().starts_with("+CGNSINF:"))
+        .ok_or(anyhow!("No CGNSINF response found in buffer"))?;
 
-    let data_str = cgps_line
+    let data_str = cgnsinf_line
         .split_once(": ")
         .map(|(_, s)| s.trim())
-        .ok_or(anyhow!("Missing CGPSINF data"))?;
+        .ok_or(anyhow!("Missing CGNSINF data"))?;
 
     let fields: Vec<&str> = data_str.split(",").collect();
-    if fields.len() < 14 {
-        bail!("Insufficient GNSS data fields: got {}, expected 14", fields.len());
-    }
     GNSSLocation::try_from(fields)
 }

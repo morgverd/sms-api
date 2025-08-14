@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail};
 use serde::Serialize;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
@@ -168,52 +168,48 @@ impl TryFrom<&str> for GNSSFixStatus {
 
 #[derive(Debug, Serialize)]
 pub struct GNSSLocation {
-    longitude: DirectionalCoordinate,
-    latitude: DirectionalCoordinate,
-    altitude: f32,
+    run_status: u8,
+    fix_status: u8,
     utc_time: u32,
-    satellites_used: u8,
-    hdop: f32,
-    geoid_separation: f32,
-    position_fix_indicator: u8
+    latitude: Option<f64>,
+    longitude: Option<f64>,
+    msl_altitude: Option<f64>,
+    ground_speed: Option<f32>,
+    ground_course: Option<f32>,
+    fix_mode: u8,
+    hdop: Option<f64>,
+    pdop: Option<f64>,
+    vdop: Option<f64>,
+    gps_in_view: Option<u8>,
+    gnss_used: Option<u8>,
+    glonass_in_view: Option<u8>
 }
 impl TryFrom<Vec<&str>> for GNSSLocation {
     type Error = anyhow::Error;
 
     fn try_from(fields: Vec<&str>) -> Result<Self, Self::Error> {
-        let parse_optional_f32 = |s: &str| -> anyhow::Result<f32> {
-            if s.is_empty() {
-                Ok(0.0)
-            } else {
-                s.parse().map_err(|_| anyhow!("Invalid number format: '{}'", s))
-            }
-        };
-        let parse_optional_u8 = |s: &str| -> anyhow::Result<u8> {
-            if s.is_empty() {
-                Ok(0)
-            } else {
-                s.parse().map_err(|_| anyhow!("Invalid number format: '{}'", s))
-            }
-        };
-        let parse_coordinate = |coord: &str, dir: &str, name: &'static str| -> anyhow::Result<DirectionalCoordinate> {
-            Ok((
-                coord.parse().with_context(|| format!("Could not parse {} coordinate: {}", name, coord))?,
-                dir.parse().with_context(|| format!("Invalid {} coordinate direction: {}", name, dir))?,
-            ))
-        };
+        if fields.len() < 15 {
+            bail!("Insufficient GNSS data fields got {}", fields.len());
+        }
 
         Ok(Self {
-            longitude: parse_coordinate(fields[2], fields[3], "longitude")?,
-            latitude: parse_coordinate(fields[4], fields[5], "latitude")?,
-            altitude: parse_optional_f32(fields[9])?,
-            utc_time: fields[1].parse::<f64>().unwrap_or(0.0) as u32,
-            satellites_used: parse_optional_u8(fields[7])?,
-            hdop: parse_optional_f32(fields[8])?,
-            geoid_separation: parse_optional_f32(fields[11])?,
-            position_fix_indicator: parse_optional_u8(fields[6])?,
+            run_status: fields[0].parse()?,
+            fix_status: fields[1].parse()?,
+            utc_time: fields[2].parse::<f64>().unwrap_or(0.0) as u32,
+            latitude: fields[3].parse().ok(),
+            longitude: fields[4].parse().ok(),
+            msl_altitude: fields[5].parse().ok(),
+            ground_speed: fields[6].parse().ok(),
+            ground_course: fields[7].parse().ok(),
+            fix_mode: fields[8].parse()?,
+            // Reserved1
+            hdop: fields[10].parse().ok(),
+            pdop: fields[11].parse().ok(),
+            vdop: fields[12].parse().ok(),
+            // Reserved2
+            gps_in_view: fields[14].parse().ok(),
+            gnss_used: fields[15].parse().ok(),
+            glonass_in_view: fields[16].parse().ok()
         })
     }
 }
-
-/// Coordinate value, Compass direction (N,S,W,E)
-pub type DirectionalCoordinate = (f64, char);
