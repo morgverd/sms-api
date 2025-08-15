@@ -164,7 +164,10 @@ pub struct HTTPConfig {
     pub send_international_format_only: bool,
 
     #[serde(default = "default_true")]
-    pub require_authentication: bool
+    pub require_authentication: bool,
+
+    #[serde(default = "default_true")]
+    pub websocket_enabled: bool
 }
 impl Default for HTTPConfig {
     fn default() -> Self {
@@ -172,7 +175,8 @@ impl Default for HTTPConfig {
             enabled: false,
             address: default_http_address(),
             send_international_format_only: default_true(),
-            require_authentication: default_true()
+            require_authentication: default_true(),
+            websocket_enabled: default_true()
         }
     }
 }

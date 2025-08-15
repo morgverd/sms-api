@@ -1,12 +1,15 @@
 use std::str::FromStr;
 use anyhow::{anyhow, bail};
-use axum::extract::State;
+use axum::extract::{State, WebSocketUpgrade};
+use axum::http::StatusCode;
+use axum::response::Response;
 use pdu_rs::pdu::{PduAddress, TypeOfNumber};
 use tracing_subscriber::EnvFilter;
-use crate::http::get_modem_json_result;
+use crate::http::{get_modem_json_result, HttpState};
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest};
+use crate::http::websocket::handle_websocket;
 
 macro_rules! http_response_handler {
     ($result:expr) => {
@@ -53,11 +56,11 @@ macro_rules! http_post_handler {
         |$state:ident, $payload:ident| $callback:block
     ) => {
         pub async fn $fn_name(
-            axum::extract::State($state): axum::extract::State<crate::app::HttpState>,
+            axum::extract::State($state): axum::extract::State<crate::http::HttpState>,
             payload: Option<axum::Json<$request_type>>
         ) -> crate::http::types::JsonResult<$response_type> {
             async fn inner(
-                $state: crate::app::HttpState,
+                $state: crate::http::HttpState,
                 $payload: Option<$request_type>,
             ) -> anyhow::Result<$response_type> {
                 $callback
@@ -75,11 +78,11 @@ macro_rules! http_post_handler {
         |$state:ident, $payload:ident| $callback:block
     ) => {
         pub async fn $fn_name(
-            axum::extract::State($state): axum::extract::State<crate::app::HttpState>,
+            axum::extract::State($state): axum::extract::State<crate::http::HttpState>,
             axum::Json($payload): axum::Json<$request_type>
         ) -> crate::http::types::JsonResult<$response_type> {
             async fn inner(
-                $state: crate::app::HttpState,
+                $state: crate::http::HttpState,
                 $payload: $request_type,
             ) -> anyhow::Result<$response_type> {
                 $callback
@@ -95,7 +98,7 @@ macro_rules! http_post_handler {
 macro_rules! http_modem_handler {
     ($fn_name:ident, $modem_req:expr) => {
         pub async fn $fn_name(
-            State(state): State<crate::app::HttpState>
+            State(state): State<crate::http::HttpState>
         ) -> crate::http::types::JsonResult<crate::modem::types::ModemResponse> {
             get_modem_json_result(state, $modem_req).await
         }
@@ -191,3 +194,18 @@ http_post_handler!(
             .map_err(|e| anyhow!(e))
     }
 );
+
+pub async fn websocket_upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<HttpState>
+) -> Response {
+
+    // TODO: Get an authentication token here!
+
+    match state.websocket {
+        Some(manager) => ws.on_upgrade(|socket| handle_websocket(socket, manager)),
+        None => Response::builder().status(StatusCode::NOT_FOUND)
+            .body("Websocket functionality is disabled!".into())
+            .unwrap_or_else(|_| Response::new("Internal Server Error".into()))
+    }
+}

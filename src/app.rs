@@ -5,19 +5,21 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 use crate::config::{AppConfig, HTTPConfig};
+use crate::events::{Event, EventBroadcaster};
 use crate::http::create_app;
+use crate::http::websocket::WebSocketManager;
 use crate::modem::ModemManager;
 use crate::modem::types::ModemIncomingMessage;
 use crate::sms::{SMSManager, SMSReceiver};
 use crate::TracingReloadHandle;
-use crate::webhooks::{WebhookEvent, WebhookSender};
 
+#[macro_export]
 macro_rules! tokio_select_with_logging {
     ($($name:expr => $handle:expr),+ $(,)?) => {
         tokio::select! {
             $(result = $handle => match result {
-                Ok(()) => info!("{} task completed", $name),
-                Err(e) => error!("{} task failed: {:?}", $name, e)
+                Ok(()) => tracing::log::info!("{} task completed", $name),
+                Err(e) => tracing::log::error!("{} task failed: {:?}", $name, e)
             }),+
         }
     };
@@ -29,96 +31,94 @@ pub type SentryGuard = Option<sentry::ClientInitGuard>;
 #[cfg(not(feature = "sentry"))]
 pub type SentryGuard = Option<()>;
 
-#[derive(Clone)]
-pub struct HttpState {
-    pub sms_manager: SMSManager,
-    pub config: HTTPConfig,
-    pub tracing_reload: TracingReloadHandle
-}
-
 pub struct AppHandles {
-    modem: JoinHandle<()>,
-    modem_cleanup: JoinHandle<()>,
-    modem_channel: JoinHandle<()>,
-    http_opt: Option<JoinHandle<()>>,
-    webhooks_opt: Option<JoinHandle<()>>,
-
-    // This is only filled if compiled with sentry feature.
-    _sentry_guard: SentryGuard
+    tasks: Vec<(&'static str, JoinHandle<()>)>,
+    _sentry_guard: SentryGuard,
 }
 impl AppHandles {
     pub async fn create(
         config: AppConfig,
         tracing_reload: TracingReloadHandle,
-        _sentry_guard: SentryGuard
+        _sentry_guard: SentryGuard,
     ) -> Result<AppHandles> {
+        let mut tasks = Vec::new();
 
-        // Start Modem task and get handle to join with HTTP server.
+        // Start modem manager
         let (mut modem, main_rx) = ModemManager::new(config.modem);
         let (modem_handle, modem_sender) = match modem.start().await {
             Ok(handle) => (handle, modem.get_sender()?),
-            Err(e) => bail!("Failed to start ModemManager: {:?}", e)
+            Err(e) => bail!("Failed to start ModemManager: {:?}", e),
         };
+        tasks.push(("Modem Handler", modem_handle));
 
-        // Create webhook manager here to get its reader handle.
-        let (webhooks_sender_opt, webhooks_handle) = WebhookSender::new(config.webhooks).unzip();
-        let sms_manager = SMSManager::connect(config.database, modem_sender, webhooks_sender_opt.clone()).await?;
+        // Create event broadcaster (and webhook worker handle).
+        let (broadcaster, webhooks_handle) = EventBroadcaster::create(config.webhooks, config.http.websocket_enabled);
+        if let Some(webhooks_worker) = webhooks_handle {
+            tasks.push(("Webhooks Worker", webhooks_worker));
+        }
 
-        let (receiver_cleanup_handle, receiver_channel_handle) = Self::create_receiver(sms_manager.clone(), webhooks_sender_opt.clone(), main_rx);
-        let http_opt = Self::try_create_http(sms_manager.clone(), config.http, tracing_reload, _sentry_guard.is_some());
+        // Setup SMS manager and receivers.
+        let sms_manager = SMSManager::connect(
+            config.database,
+            modem_sender,
+            broadcaster.clone()
+        ).await?;
 
-        let handles = AppHandles {
-            modem: modem_handle,
-            modem_cleanup: receiver_cleanup_handle,
-            modem_channel: receiver_channel_handle,
-            webhooks_opt: webhooks_handle,
-            http_opt,
-            _sentry_guard
-        };
-        Ok(handles)
+        let (cleanup_handle, channel_handle) = Self::start_sms_receiver(
+            main_rx,
+            sms_manager.clone(),
+            broadcaster.clone()
+        );
+        tasks.push(("Modem Cleanup", cleanup_handle));
+        tasks.push(("Modem Channel", channel_handle));
+
+        // Setup HTTP server if enabled.
+        if let Some(http_handle) = Self::start_http_server(
+            config.http,
+            broadcaster.and_then(|broadcaster| broadcaster.websocket),
+            sms_manager,
+            tracing_reload,
+            _sentry_guard.is_some(),
+        )? {
+            tasks.push(("HTTP Server", http_handle));
+        }
+
+        Ok(AppHandles {
+            tasks,
+            _sentry_guard,
+        })
     }
 
     pub async fn run(self) {
-        match (self.http_opt, self.webhooks_opt) {
-            (Some(http), Some(webhooks)) => tokio_select_with_logging! {
-                "Modem Handler" => self.modem,
-                "Modem Cleanup" => self.modem_cleanup,
-                "Modem Channel" => self.modem_channel,
-                "HTTP Server" => http,
-                "Webhooks Sender" => webhooks
-            },
-            (Some(http), None) => tokio_select_with_logging! {
-                "Modem Handler" => self.modem,
-                "Modem Cleanup" => self.modem_cleanup,
-                "Modem Channel" => self.modem_channel,
-                "HTTP Server" => http
-            },
-            (None, Some(webhooks)) => tokio_select_with_logging! {
-                "Modem Handler" => self.modem,
-                "Modem Cleanup" => self.modem_cleanup,
-                "Modem Channel" => self.modem_channel,
-                "Webhooks Sender" => webhooks
-            },
-            (None, None) => tokio_select_with_logging! {
-                "Modem Handler" => self.modem,
-                "Modem Cleanup" => self.modem_cleanup,
-                "Modem Channel" => self.modem_channel
-            }
-        }
+        let futures: Vec<_> = self.tasks
+            .into_iter()
+            .map(|(name, handle)| {
+                Box::pin(async move {
+                    match handle.await {
+                        Ok(()) => info!("{} task completed", name),
+                        Err(e) => error!("{} task failed: {:?}", name, e),
+                    }
+                })
+            })
+            .collect();
+
+        // Wait for any task to complete. All handles are boxed, so when dropped they are cancelled.
+        let (_, _, remaining) = futures::future::select_all(futures).await;
+        drop(remaining);
     }
 
-    fn create_receiver(
+    fn start_sms_receiver(
+        mut main_rx: UnboundedReceiver<ModemIncomingMessage>,
         sms_manager: SMSManager,
-        webhooks_sender: Option<WebhookSender>,
-        mut main_rx: UnboundedReceiver<ModemIncomingMessage>
+        broadcaster: Option<EventBroadcaster>
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let receiver = SMSReceiver::new(sms_manager);
 
-        // Cleanup stalled multipart messages from SMSReceiver.
+        // Cleanup task
         let mut cleanup_receiver = receiver.clone();
         let cleanup_handle = tokio::spawn(async move {
-            info!("Started Modem Multipart Messages garbage collector");
-            let mut interval = interval(Duration::from_secs(10 * 60)); // 10 minutes
+            info!("Started SMS cleanup task");
+            let mut interval = interval(Duration::from_secs(600)); // 10 minutes
 
             loop {
                 interval.tick().await;
@@ -126,74 +126,82 @@ impl AppHandles {
             }
         });
 
-        // Forward ModemIncomingMessage's from the modem to SMSManager.
-        let mut channel_receiver = receiver.clone();
+        // Message handling task
+        let mut message_receiver = receiver;
         let channel_handle = tokio::spawn(async move {
-            info!("Started ModemIncomingMessage receiver");
+            info!("Started message receiver task");
 
             while let Some(message) = main_rx.recv().await {
-                debug!("AppState modem_receiver: {:?}", message);
-
-                match message {
-                    ModemIncomingMessage::IncomingSMS(incoming) => {
-                        match channel_receiver.handle_incoming_sms(incoming).await {
-                            Some(Ok(row_id)) => debug!("Stored SMSIncomingMessage #{}", row_id),
-                            Some(Err(e)) => error!("Failed to store SMSIncomingMessage with error: {:?}", e),
-                            None => debug!("Not storing SMSIncomingMessage as it is apart of a multipart message.")
-                        }
-                    },
-                    ModemIncomingMessage::DeliveryReport(report) => {
-                        match channel_receiver.handle_delivery_report(report).await {
-                            Ok(message_id) => debug!("Updated delivery report status for message #{}", message_id),
-                            Err(e) => warn!("Failed to update message delivery report with error: {:?}", e)
-                        }
-                    },
-                    ModemIncomingMessage::ModemStatusUpdate { previous, current } => {
-                        if let Some(webhooks) = &webhooks_sender {
-                            webhooks.send(WebhookEvent::ModemStatusUpdate {
-                                previous,
-                                current
-                            });
-                        }
-                    },
-                    ModemIncomingMessage::GNSSPositionReport(location) => {
-                        if let Some(webhooks) = &webhooks_sender {
-                            webhooks.send(WebhookEvent::GNSSPositionReport(location));
-                        }
-                    },
-                    _ => warn!("Unimplemented ModemIncomingMessage for SMSManager: {:?}", message)
-                };
+                debug!("Received message: {:?}", message);
+                Self::handle_modem_message(message, &mut message_receiver, &broadcaster).await;
             }
         });
 
         (cleanup_handle, channel_handle)
     }
 
-    fn try_create_http(
-        sms_manager: SMSManager,
+    async fn handle_modem_message(
+        message: ModemIncomingMessage,
+        receiver: &mut SMSReceiver,
+        broadcaster: &Option<EventBroadcaster>,
+    ) {
+        match message {
+            ModemIncomingMessage::IncomingSMS(incoming) => {
+                match receiver.handle_incoming_sms(incoming).await {
+                    Some(Ok(row_id)) => debug!("Stored SMS message #{}", row_id),
+                    Some(Err(e)) => error!("Failed to store SMS: {:?}", e),
+                    None => debug!("SMS is part of multipart message, not storing yet"),
+                }
+            }
+            ModemIncomingMessage::DeliveryReport(report) => {
+                match receiver.handle_delivery_report(report).await {
+                    Ok(message_id) => debug!("Updated delivery status for message #{}", message_id),
+                    Err(e) => warn!("Failed to update delivery report: {:?}", e),
+                }
+            }
+            ModemIncomingMessage::ModemStatusUpdate { previous, current } => {
+                if let Some(broadcaster) = broadcaster {
+                    broadcaster.broadcast(Event::ModemStatusUpdate { previous, current }).await;
+                }
+            }
+            ModemIncomingMessage::GNSSPositionReport(location) => {
+                if let Some(broadcaster) = broadcaster {
+                    broadcaster.broadcast(Event::GNSSPositionReport(location)).await;
+                }
+            }
+            _ => warn!("Unhandled message type: {:?}", message),
+        }
+    }
+
+    fn start_http_server(
         config: HTTPConfig,
+        websocket: Option<WebSocketManager>,
+        sms_manager: SMSManager,
         tracing_reload: TracingReloadHandle,
-        _sentry: bool
-    ) -> Option<JoinHandle<()>> {
+        sentry_enabled: bool,
+    ) -> Result<Option<JoinHandle<()>>> {
         if !config.enabled {
-            info!("HTTP server is disabled in config!");
-            return None;
+            info!("HTTP server disabled in config");
+            return Ok(None);
         }
 
         let address = config.address;
-        let app = create_app(HttpState { sms_manager, config, tracing_reload }, _sentry).expect("Failed to create HTTP app!");
+        let app = create_app(config, websocket, sms_manager, tracing_reload, sentry_enabled)?;
 
         let handle = tokio::spawn(async move {
             let listener = tokio::net::TcpListener::bind(address)
                 .await
                 .expect("Failed to bind to address");
 
-            info!("Started HTTP listener @ {}", address.to_string());
-            match axum::serve(listener, app).await {
-                Ok(_) => debug!("HTTP server terminated."),
-                Err(e) => error!("HTTP server error: {:?}", e)
+            info!("HTTP server listening on {}", address);
+
+            if let Err(e) = axum::serve(listener, app).await {
+                error!("HTTP server error: {:?}", e);
+            } else {
+                debug!("HTTP server shut down gracefully");
             }
         });
-        Some(handle)
+
+        Ok(Some(handle))
     }
 }

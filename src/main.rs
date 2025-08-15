@@ -4,6 +4,7 @@ mod sms;
 mod config;
 pub mod webhooks;
 pub mod app;
+pub mod events;
 
 use std::path::PathBuf;
 use anyhow::Result;

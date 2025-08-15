@@ -8,65 +8,18 @@ use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use anyhow::{bail, Context, Result};
-use serde::Serialize;
 use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSMessage};
-use crate::modem::types::{GNSSLocation, ModemStatus};
+use crate::events::Event;
 
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", content = "data")]
-pub enum WebhookEvent {
-    #[serde(rename = "incoming")]
-    IncomingMessage(SMSMessage),
-
-    #[serde(rename = "outgoing")]
-    OutgoingMessage(SMSMessage),
-
-    #[serde(rename = "delivery")]
-    DeliveryReport {
-        message_id: i64,
-        report: SMSIncomingDeliveryReport
-    },
-
-    #[serde(rename = "modem_status_update")]
-    ModemStatusUpdate {
-        previous: ModemStatus,
-        current: ModemStatus
-    },
-
-    #[serde(rename = "gnss_position_report")]
-    GNSSPositionReport(GNSSLocation)
-}
-impl WebhookEvent {
-
-    #[inline]
-    pub fn to_configured_event(&self) -> ConfiguredWebhookEvent {
-        match self {
-            WebhookEvent::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
-            WebhookEvent::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
-            WebhookEvent::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport,
-            WebhookEvent::ModemStatusUpdate { .. } => ConfiguredWebhookEvent::ModemStatusUpdate,
-            WebhookEvent::GNSSPositionReport(_) => ConfiguredWebhookEvent::GNSSPositionReport
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct WebhookSender {
-    event_sender: mpsc::UnboundedSender<WebhookEvent>,
+    event_sender: mpsc::UnboundedSender<Event>,
 }
 impl WebhookSender {
-    pub fn new(webhooks: Option<Vec<ConfiguredWebhook>>) -> Option<(Self, JoinHandle<()>)> {
-        let webhooks = match webhooks {
-            Some(webhooks) => webhooks,
-            None => {
-                info!("There are no webhook targets within config!");
-                return None;
-            }
-        };
+    pub fn new(webhooks: Vec<ConfiguredWebhook>) -> (Self, JoinHandle<()>) {
 
         // Use an unbounded channel to ensure no webhooks are ever dropped.
         // The modem command channel is bound, so we should be fine from API spam.
@@ -77,10 +30,10 @@ impl WebhookSender {
         });
 
         let manager = Self { event_sender };
-        Some((manager, handle))
+        (manager, handle)
     }
 
-    pub fn send(&self, event: WebhookEvent) {
+    pub fn send(&self, event: Event) {
         debug!("Sending webhook event: {:?}", event);
         if let Err(e) = self.event_sender.send(event) {
             error!("Failed to queue webhook job: {}", e);
@@ -93,11 +46,11 @@ type StoredWebhook = (ConfiguredWebhook, Option<HeaderMap>);
 struct WebhookWorker {
     webhooks: Arc<[StoredWebhook]>,
     events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>>,
-    event_receiver: mpsc::UnboundedReceiver<WebhookEvent>,
+    event_receiver: mpsc::UnboundedReceiver<Event>,
     client: Client
 }
 impl WebhookWorker {
-    fn new(webhooks: Vec<ConfiguredWebhook>, event_receiver: mpsc::UnboundedReceiver<WebhookEvent>) -> Self {
+    fn new(webhooks: Vec<ConfiguredWebhook>, event_receiver: mpsc::UnboundedReceiver<Event>) -> Self {
         let mut events_map: HashMap<ConfiguredWebhookEvent, Vec<usize>> = HashMap::new();
         for (idx, webhook) in webhooks.iter().enumerate() {
             for event in &webhook.events {
@@ -145,7 +98,7 @@ impl WebhookWorker {
         }
     }
 
-    async fn process(&self, event: WebhookEvent) {
+    async fn process(&self, event: Event) {
         let webhook_indices = match self.events_map.get(&event.to_configured_event()) {
             Some(indices) => indices.clone(),
             None => return
@@ -176,7 +129,7 @@ impl WebhookWorker {
     async fn execute_webhook(
         (webhook, headers): &StoredWebhook,
         client: &Client,
-        event: &WebhookEvent
+        event: &Event
     ) -> Result<()> {
         let mut request = client
             .post(&webhook.url)
