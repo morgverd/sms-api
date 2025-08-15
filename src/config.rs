@@ -9,6 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use reqwest::header::{HeaderMap, HeaderName};
 use serde::Deserialize;
+use crate::events::EventType;
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -95,7 +96,7 @@ pub struct ConfiguredWebhook {
 
     /// By default, this is only IncomingMessage.
     #[serde(default = "default_webhook_events")]
-    pub events: Vec<ConfiguredWebhookEvent>,
+    pub events: Vec<EventType>,
 
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
@@ -114,24 +115,6 @@ impl ConfiguredWebhook {
 
         Ok(Some(out))
     }
-}
-
-#[derive(Eq, PartialEq, Hash, Debug, Clone, Copy, Deserialize)]
-pub enum ConfiguredWebhookEvent {
-    #[serde(rename = "incoming")]
-    IncomingMessage,
-
-    #[serde(rename = "outgoing")]
-    OutgoingMessage,
-
-    #[serde(rename = "delivery")]
-    DeliveryReport,
-
-    #[serde(rename = "modem_status_update")]
-    ModemStatusUpdate,
-
-    #[serde(rename = "gnss_position_report")]
-    GNSSPositionReport
 }
 
 #[cfg(feature = "sentry")]
@@ -185,7 +168,7 @@ fn default_modem_device() -> String { "/dev/ttyS0".to_string() }
 fn default_modem_baud() -> u32 { 115200 }
 fn default_modem_cmd_buffer_size() -> usize { 32 }
 fn default_modem_read_buffer_size() -> usize { 4096 }
-fn default_webhook_events() -> Vec<ConfiguredWebhookEvent> { vec![ConfiguredWebhookEvent::IncomingMessage] }
+fn default_webhook_events() -> Vec<EventType> { vec![EventType::IncomingMessage] }
 fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
 fn default_gnss_report_interval() -> u8 { 0 }
 fn default_true() -> bool { true }

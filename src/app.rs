@@ -13,18 +13,6 @@ use crate::modem::types::ModemIncomingMessage;
 use crate::sms::{SMSManager, SMSReceiver};
 use crate::TracingReloadHandle;
 
-#[macro_export]
-macro_rules! tokio_select_with_logging {
-    ($($name:expr => $handle:expr),+ $(,)?) => {
-        tokio::select! {
-            $(result = $handle => match result {
-                Ok(()) => tracing::log::info!("{} task completed", $name),
-                Err(e) => tracing::log::error!("{} task failed: {:?}", $name, e)
-            }),+
-        }
-    };
-}
-
 #[cfg(feature = "sentry")]
 pub type SentryGuard = Option<sentry::ClientInitGuard>;
 
@@ -93,10 +81,11 @@ impl AppHandles {
         let futures: Vec<_> = self.tasks
             .into_iter()
             .map(|(name, handle)| {
+                info!("Starting task: {}.", name);
                 Box::pin(async move {
                     match handle.await {
-                        Ok(()) => info!("{} task completed", name),
-                        Err(e) => error!("{} task failed: {:?}", name, e),
+                        Ok(()) => info!("{} task completed!", name),
+                        Err(e) => error!("{} task failed: {:?}!", name, e),
                     }
                 })
             })
@@ -117,7 +106,6 @@ impl AppHandles {
         // Cleanup task
         let mut cleanup_receiver = receiver.clone();
         let cleanup_handle = tokio::spawn(async move {
-            info!("Started SMS cleanup task");
             let mut interval = interval(Duration::from_secs(600)); // 10 minutes
 
             loop {
@@ -129,10 +117,7 @@ impl AppHandles {
         // Message handling task
         let mut message_receiver = receiver;
         let channel_handle = tokio::spawn(async move {
-            info!("Started message receiver task");
-
             while let Some(message) = main_rx.recv().await {
-                debug!("Received message: {:?}", message);
                 Self::handle_modem_message(message, &mut message_receiver, &broadcaster).await;
             }
         });
@@ -193,7 +178,7 @@ impl AppHandles {
                 .await
                 .expect("Failed to bind to address");
 
-            info!("HTTP server listening on {}", address);
+            info!("HTTP server listening on {}.", address);
 
             if let Err(e) = axum::serve(listener, app).await {
                 error!("HTTP server error: {:?}", e);

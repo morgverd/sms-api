@@ -185,7 +185,7 @@ impl From<u8> for GNSSFixStatus {
 pub struct GNSSLocation {
     run_status: bool,
     fix_status: bool,
-    utc_time: u32,
+    utc_time: String,
     latitude: Option<f64>,
     longitude: Option<f64>,
     msl_altitude: Option<f64>,
@@ -207,11 +207,11 @@ impl TryFrom<Vec<&str>> for GNSSLocation {
             bail!("Insufficient GNSS data fields got {}", fields.len());
         }
 
-        // Based on: https://simcom.ee/documents/SIM868/SIM868_GNSS_Application%20Note_V1.00.pdf
+        // Based on: https://simcom.ee/documents/SIM868/SIM868_GNSS_Application%20Note_V1.00.pdf (2.3)
         Ok(Self {
             run_status: fields[0] == "1",
             fix_status: fields[1] == "1",
-            utc_time: fields[2].parse::<f64>().unwrap_or(0.0) as u32,
+            utc_time: fields[2].to_string(),
             latitude: fields[3].parse().ok(),
             longitude: fields[4].parse().ok(),
             msl_altitude: fields[5].parse().ok(),

@@ -108,17 +108,18 @@ pub fn create_app(
     }
 
     // Add optional authentication middleware.
-    let auth_token = std::env::var("SMS_HTTP_AUTH_TOKEN");
-    if config.require_authentication && auth_token.is_err() {
-        bail!("Missing required SMS_HTTP_AUTH_TOKEN environment variable, and require_authentication is enabled");
-    }
-    if let Ok(token) = auth_token {
-        info!("Adding HTTP authentication middleware!");
-        router = router.layer(
-            axum::middleware::from_fn_with_state(token, auth_middleware)
-        );
+    if config.require_authentication {
+        match std::env::var("SMS_HTTP_AUTH_TOKEN") {
+            Ok(token) => {
+                info!("Adding HTTP authentication middleware!");
+                router = router.layer(
+                    axum::middleware::from_fn_with_state(token, auth_middleware)
+                );
+            },
+            Err(_) => bail!("Missing required SMS_HTTP_AUTH_TOKEN environment variable, and require_authentication is enabled!")
+        }
     } else {
-        warn!("Serving HTTP without authentication middleware due to missing/invalid SMS_HTTP_AUTH_TOKEN");
+        warn!("Serving HTTP without authentication middleware, as require_authentication is disabled!");
     }
 
     // If Sentry is enabled, include axum integration layers.

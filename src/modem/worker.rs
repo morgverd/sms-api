@@ -53,7 +53,7 @@ impl ModemWorker {
     ) -> Result<()> {
         match self.initialize_modem().await {
             Ok(()) => {
-                info!("Modem initialized successfully");
+                info!("Modem initialized successfully!");
                 self.set_status(ModemStatus::Online);
             }
             Err(e) => {
@@ -82,7 +82,7 @@ impl ModemWorker {
         let mut timeout_interval = interval(Duration::from_secs(1));
         let mut reconnect_interval = interval(Duration::from_secs(30));
 
-        info!("Started ModemWorker");
+        debug!("Starting ModemWorker status loop.");
         loop {
             match self.status {
                 ModemStatus::Online => {

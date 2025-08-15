@@ -1,15 +1,15 @@
 use std::str::FromStr;
 use anyhow::{anyhow, bail};
-use axum::extract::{State, WebSocketUpgrade};
+use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::Response;
 use pdu_rs::pdu::{PduAddress, TypeOfNumber};
 use tracing_subscriber::EnvFilter;
-use crate::http::{get_modem_json_result, HttpState};
+use crate::http::{HttpState, get_modem_json_result};
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
-use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest};
-use crate::http::websocket::handle_websocket;
+use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery};
+use crate::http::websocket::{handle_websocket, WebSocketConnection};
 
 macro_rules! http_response_handler {
     ($result:expr) => {
@@ -197,15 +197,20 @@ http_post_handler!(
 
 pub async fn websocket_upgrade(
     ws: WebSocketUpgrade,
-    State(state): State<HttpState>
-) -> Response {
+    State(state): State<HttpState>,
+    Query(query_params): Query<WebSocketQuery>
+) -> Result<Response, StatusCode> {
 
-    // TODO: Get an authentication token here!
-
-    match state.websocket {
-        Some(manager) => ws.on_upgrade(|socket| handle_websocket(socket, manager)),
+    // Read all target events from query string for filtering.
+    let events = query_params.get_event_types();
+    let response = match state.websocket {
+        Some(manager) => ws.on_upgrade(|socket| {
+            let connection: WebSocketConnection = (socket, events);
+            handle_websocket(connection, manager)
+        }),
         None => Response::builder().status(StatusCode::NOT_FOUND)
             .body("Websocket functionality is disabled!".into())
             .unwrap_or_else(|_| Response::new("Internal Server Error".into()))
-    }
+    };
+    Ok(response)
 }

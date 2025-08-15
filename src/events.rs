@@ -1,11 +1,63 @@
-use serde::Serialize;
+use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::log::debug;
-use crate::config::{ConfiguredWebhook, ConfiguredWebhookEvent};
+use crate::config::ConfiguredWebhook;
 use crate::http::websocket::WebSocketManager;
 use crate::modem::types::{GNSSLocation, ModemStatus};
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSMessage};
 use crate::webhooks::WebhookSender;
+
+#[derive(Eq, PartialEq, Hash, Debug, Clone, Copy, Deserialize)]
+pub enum EventType {
+    #[serde(rename = "incoming")]
+    IncomingMessage,
+
+    #[serde(rename = "outgoing")]
+    OutgoingMessage,
+
+    #[serde(rename = "delivery")]
+    DeliveryReport,
+
+    #[serde(rename = "modem_status_update")]
+    ModemStatusUpdate,
+
+    #[serde(rename = "gnss_position_report")]
+    GNSSPositionReport
+}
+impl EventType {
+    pub const fn to_bit(self) -> u8 {
+        match self {
+            EventType::IncomingMessage => 1 << 0,     // 0b00001
+            EventType::OutgoingMessage => 1 << 1,     // 0b00010
+            EventType::DeliveryReport => 1 << 2,      // 0b00100
+            EventType::ModemStatusUpdate => 1 << 3,   // 0b01000
+            EventType::GNSSPositionReport => 1 << 4,  // 0b10000
+        }
+    }
+
+    pub const fn all_bits() -> u8 {
+        (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) // 0b11111
+    }
+
+    pub fn events_to_mask(events: &[EventType]) -> u8 {
+        events.iter().fold(0, |acc, event| acc | event.to_bit())
+    }
+}
+impl TryFrom<&str> for EventType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "incoming" => Ok(EventType::IncomingMessage),
+            "outgoing" => Ok(EventType::OutgoingMessage),
+            "delivery" => Ok(EventType::DeliveryReport),
+            "modem_status_update" => Ok(EventType::ModemStatusUpdate),
+            "gnss_position_report" => Ok(EventType::GNSSPositionReport),
+            _ => Err(anyhow!("Unknown event type {}", value))
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
@@ -34,13 +86,13 @@ pub enum Event {
 impl Event {
 
     #[inline]
-    pub fn to_configured_event(&self) -> ConfiguredWebhookEvent {
+    pub fn to_event_type(&self) -> EventType {
         match self {
-            Event::IncomingMessage(_) => ConfiguredWebhookEvent::IncomingMessage,
-            Event::OutgoingMessage(_) => ConfiguredWebhookEvent::OutgoingMessage,
-            Event::DeliveryReport { .. } => ConfiguredWebhookEvent::DeliveryReport,
-            Event::ModemStatusUpdate { .. } => ConfiguredWebhookEvent::ModemStatusUpdate,
-            Event::GNSSPositionReport(_) => ConfiguredWebhookEvent::GNSSPositionReport
+            Event::IncomingMessage(_) => EventType::IncomingMessage,
+            Event::OutgoingMessage(_) => EventType::OutgoingMessage,
+            Event::DeliveryReport { .. } => EventType::DeliveryReport,
+            Event::ModemStatusUpdate { .. } => EventType::ModemStatusUpdate,
+            Event::GNSSPositionReport(_) => EventType::GNSSPositionReport
         }
     }
 }
