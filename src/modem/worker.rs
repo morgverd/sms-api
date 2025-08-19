@@ -281,7 +281,8 @@ impl ModemWorker {
         }
 
         for (command, expected) in initialization_commands {
-            debug!("Sending initialization command: {:?}", command);
+            let command_str = String::from_utf8_lossy(&command);
+            debug!("Sending initialization command: {:?}", command_str);
 
             self.port.write_all(&*command).await?;
 
@@ -293,7 +294,7 @@ impl ModemWorker {
             if !response_str.contains(&*expected_str) {
                 return Err(anyhow!(
                     "Initialization command '{:?}' failed. Expected: '{}', Got: '{}'",
-                    command, expected_str, response_str.trim()
+                    command_str, expected_str, response_str.trim()
                 ));
             }
         }

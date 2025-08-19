@@ -192,9 +192,9 @@ pub struct GNSSLocation {
     ground_speed: Option<f32>,
     ground_course: Option<f32>,
     fix_mode: GNSSFixStatus,
-    hdop: Option<f64>,
-    pdop: Option<f64>,
-    vdop: Option<f64>,
+    hdop: Option<f32>,
+    pdop: Option<f32>,
+    vdop: Option<f32>,
     gps_in_view: Option<u8>,
     gnss_used: Option<u8>,
     glonass_in_view: Option<u8>
