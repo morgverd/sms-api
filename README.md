@@ -1,15 +1,16 @@
 # SMS API
 
-Send and receive SMS messages via a GSM modem.
 
 ## Features
 
 - Optional HTTP server to send modem operations and access database (with optional token authorization).
-- HTTP webhook support for different events (incoming, outgoing, delivery).
+- Receive unsolicited modem messages / internal events via WebSocket or HTTP webhooks.
 - **All incoming and outgoing SMS message content is stored encrypted.**
 - Handles SMS delivery reports, updating send status when received.
 - Supports GNSS location tracking, this can be disabled in the config.
 - Allows unsolicited notifications to interrupt command execution for immediate updates.
+- Pagination request options for database operations.
+- Optional simple HTTP token authentication for routes and websocket.
 - Optional Sentry client integration (must be built with `sentry` feature).
 - Provides [pdu-rs](https://github.com/morgverd/pdu-rs) crate for SMS PDU parsing.
 
@@ -17,10 +18,14 @@ Send and receive SMS messages via a GSM modem.
 
 ### [ChatGPT SMS](./examples/chatgpt-sms)
 
-Create a HTTP webhook server to accept `incoming` events and then send a ChatGPT generated reply with basic message history. This is probably a crime against humanity,
+A HTTP webhook server to accept `incoming` events and then send a ChatGPT generated reply with basic message history. This is probably a crime against humanity,
 and it shouldn't actually be used, but it's a good example of using webhooks in a workflow.
 
 > Which, to my knowledge, is the first ChatGPT SMS implementation running directly through a modem!
+
+### [GNSS Viewer](./examples/gnss-viewer)
+
+A real-time GPS monitoring webpage that connects via WebSocket to display live position reports. Access it from any networked device to track and analyze GPS accuracy in real-time.
 
 ## Hardware
 

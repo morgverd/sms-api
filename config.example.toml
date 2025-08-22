@@ -16,6 +16,22 @@ device = "/dev/ttyS0"
 # The baud rate to use when creating device connection.
 baud = 115200
 
+# If the Modem GNSS module should be enabled. This requires the antenna to be connected to the modem.
+# By default, this is disabled as if the antenna isn't connected worker initialization will fail.
+gnss_enabled = false
+
+# Sets AT+CGNSURC interval (in seconds), this causes the modem to send unsolicited position reports which are sent as events.
+# If set to zero (default) the modem does not send these position reports, however it can still be accessed via HTTP (GET /gnss/location).
+gnss_report_interval = 0
+
+# Should GPIO pin 4 (Waveshare Hat power-pin) be toggled if initial connection test fails?
+# This ensures the hat is always powered after a system restart etc.
+gpio_power_pin = false
+
+# Should the GPIO power pin be toggled during failed reconnection attempts? This allows the modem to be powered on
+# if it somehow is powered off during operation (by default, pin control prevents the button from working).
+gpio_repower = false
+
 # Buffer size for Modem command sender channel. This is bound to ensure that slow command responses don't result in
 # unexpected backpressure as we keep adding new commands to the queue. If the queue is full, API requests are rejected.
 cmd_channel_buffer_size = 32
@@ -43,9 +59,12 @@ address = "0.0.0.0:3000"
 # This prevents sending to internal carrier numbers which could be used to check balance etc.
 send_international_format_only = true
 
-# This determines if a missing SMS_HTTP_AUTH_TOKEN should trigger a panic.
-# If disabled, the environment variable becomes optional.
+# Should authentication middleware be added? This requires that all requests (include websocket upgrades) have an
+# Authorization header that matches environment variable SMS_HTTP_AUTH_TOKEN (it will panic if this is missing).
 require_authentication = true
+
+# Should the websocket event route (/ws) be served?
+websocket_enabled = true
 
 # --------------------------------------------------------------------------------
 # [OPTIONAL] Sentry error tracking and monitoring (requires sentry feature to be enabled)

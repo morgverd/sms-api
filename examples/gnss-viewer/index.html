@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>GNSS Position Tracker</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+
+            .container {
+                background: white;
+                border-radius: 10px;
+                padding: 20px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+
+            h1 {
+                color: #333;
+                text-align: center;
+                margin-bottom: 30px;
+            }
+
+            .connection-status {
+                padding: 10px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                text-align: center;
+                font-weight: bold;
+            }
+
+            .connected {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+
+            .disconnected {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+
+            .connecting {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeaa7;
+            }
+
+            .controls {
+                margin-bottom: 20px;
+            }
+
+            .controls input, .controls button {
+                padding: 8px 12px;
+                margin: 5px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+
+            .controls button {
+                background-color: #007bff;
+                color: white;
+                cursor: pointer;
+            }
+
+            .controls button:hover {
+                background-color: #0056b3;
+            }
+
+            .controls button:disabled {
+                background-color: #6c757d;
+                cursor: not-allowed;
+            }
+
+            .data-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 15px;
+                margin-top: 20px;
+            }
+
+            .data-card {
+                background: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 15px;
+            }
+
+            .data-card h3 {
+                margin: 0 0 10px 0;
+                color: #495057;
+                font-size: 1.1em;
+            }
+
+            .data-item {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 8px;
+                font-size: 0.9em;
+            }
+
+            .data-label {
+                font-weight: bold;
+                color: #6c757d;
+            }
+
+            .data-value {
+                color: #212529;
+                font-family: 'Courier New', monospace;
+            }
+
+            .status-indicator {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-left: 5px;
+            }
+
+            .status-good { background-color: #28a745; }
+            .status-bad { background-color: #dc3545; }
+
+            .last-update {
+                text-align: center;
+                color: #6c757d;
+                font-size: 0.9em;
+                margin-top: 20px;
+                font-style: italic;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>GNSS Position Tracker</h1>
+            <div id="connectionStatus" class="connection-status disconnected">
+                Disconnected
+            </div>
+            <div class="controls">
+                <input type="text" id="wsUrl" placeholder="WebSocket URL (ws://127.0.0.1:3000)" value="ws://127.0.0.1:3000">
+                <button id="connectBtn" onclick="connectWebSocket()">Connect</button>
+                <button id="disconnectBtn" onclick="disconnectWebSocket()" disabled>Disconnect</button>
+            </div>
+            <div class="data-grid">
+                <div class="data-card">
+                    <h3>Position</h3>
+                    <div class="data-item">
+                        <span class="data-label">Latitude:</span>
+                        <span class="data-value" id="latitude">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">Longitude:</span>
+                        <span class="data-value" id="longitude">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">Altitude (MSL):</span>
+                        <span class="data-value" id="altitude">--</span>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <h3>Status</h3>
+                    <div class="data-item">
+                        <span class="data-label">Run Status:</span>
+                        <span class="data-value" id="runStatus">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">Fix Status:</span>
+                        <span class="data-value" id="fixStatus">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">Fix Mode:</span>
+                        <span class="data-value" id="fixMode">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">UTC Time:</span>
+                        <span class="data-value" id="utcTime">--</span>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <h3>Movement</h3>
+                    <div class="data-item">
+                        <span class="data-label">Ground Speed:</span>
+                        <span class="data-value" id="groundSpeed">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">Ground Course:</span>
+                        <span class="data-value" id="groundCourse">--</span>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <h3>Accuracy</h3>
+                    <div class="data-item">
+                        <span class="data-label">HDOP:</span>
+                        <span class="data-value" id="hdop">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">PDOP:</span>
+                        <span class="data-value" id="pdop">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">VDOP:</span>
+                        <span class="data-value" id="vdop">--</span>
+                    </div>
+                </div>
+                <div class="data-card">
+                    <h3>Satellites</h3>
+                    <div class="data-item">
+                        <span class="data-label">GPS in View:</span>
+                        <span class="data-value" id="gpsInView">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">GNSS Used:</span>
+                        <span class="data-value" id="gnssUsed">--</span>
+                    </div>
+                    <div class="data-item">
+                        <span class="data-label">GLONASS in View:</span>
+                        <span class="data-value" id="glonassInView">--</span>
+                    </div>
+                </div>
+            </div>
+            <div id="lastUpdate" class="last-update">
+                No data received yet
+            </div>
+        </div>
+        <script type="application/javascript">
+            let websocket = null;
+            let reconnectInterval = null;
+
+            function updateConnectionStatus(status, message) {
+                const statusElement = document.getElementById("connectionStatus");
+                const connectBtn = document.getElementById("connectBtn");
+                const disconnectBtn = document.getElementById("disconnectBtn");
+
+                statusElement.className = `connection-status ${status}`;
+                statusElement.textContent = message;
+
+                if (status === "connected") {
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                } else {
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                }
+            }
+
+            function connectWebSocket() {
+                const url = document.getElementById("wsUrl").value.trim();
+                if (!url) {
+                    alert("Please enter a WebSocket URL");
+                    return;
+                }
+
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    return;
+                }
+
+                updateConnectionStatus("connecting", "Connecting...");
+
+                try {
+                    websocket = new WebSocket(url);
+
+                    websocket.onopen = function() {
+                        console.log("WebSocket connected");
+                        updateConnectionStatus("connected", "Connected");
+                        clearInterval(reconnectInterval);
+                    };
+
+                    websocket.onmessage = function(event) {
+                        console.log("Received message:", event.data);
+                        handleMessage(event.data);
+                    };
+
+                    websocket.onclose = function(event) {
+                        console.log("WebSocket disconnected:", event.code, event.reason);
+                        updateConnectionStatus("disconnected", "Disconnected");
+
+                        // Auto-reconnect after 5 seconds
+                        if (event.code !== 1000) {
+                            reconnectInterval = setTimeout(() => {
+                                console.log("Attempting to reconnect...");
+                                connectWebSocket();
+                            }, 5000);
+                        }
+                    };
+
+                    websocket.onerror = function(error) {
+                        console.error("WebSocket error:", error);
+                        updateConnectionStatus("disconnected", "Connection Error");
+                    };
+
+                } catch (error) {
+                    console.error("Failed to create WebSocket:", error);
+                    updateConnectionStatus("disconnected", "Failed to Connect");
+                }
+            }
+
+            function disconnectWebSocket() {
+                if (websocket) {
+                    clearInterval(reconnectInterval);
+                    websocket.close(1000, "User requested disconnect");
+                    websocket = null;
+                }
+            }
+
+            function handleMessage(messageText) {
+                try {
+                    const message = JSON.parse(messageText);
+
+                    // Verify that it's a position report.
+                    if (message.type === "gnss_position_report") {
+                        updatePositionDisplay(message.data);
+                    } else {
+                        console.log("Received unknown message type:", message.type);
+                    }
+
+                } catch (error) {
+                    console.error("Failed to parse message:", error);
+                }
+            }
+
+            function updatePositionDisplay(data) {
+                // Position data
+                document.getElementById("latitude").textContent = data.latitude?.toFixed(6) + "°" || "--";
+                document.getElementById("longitude").textContent = data.longitude?.toFixed(6) + "°" || "--";
+                document.getElementById("altitude").textContent = data.msl_altitude?.toFixed(3) + " m" || "--";
+
+                // Status data with indicators
+                const runStatusElement = document.getElementById("runStatus");
+                runStatusElement.innerHTML = (data.run_status ? "Running" : "Stopped") +
+                    `<span class="status-indicator ${data.run_status ? "status-good" : "status-bad"}"></span>`;
+
+                const fixStatusElement = document.getElementById("fixStatus");
+                fixStatusElement.innerHTML = (data.fix_status ? "Fixed" : "No Fix") +
+                    `<span class="status-indicator ${data.fix_status ? "status-good" : "status-bad"}"></span>`;
+
+                document.getElementById("fixMode").textContent = data.fix_mode || "--";
+
+                // Format weird UTC format
+                if (data.utc_time) {
+                    const utcStr = data.utc_time;
+                    const formatted = utcStr.substring(0,4) + "-" +
+                        utcStr.substring(4,6) + "-" +
+                        utcStr.substring(6,8) + " " +
+                        utcStr.substring(8,10) + ":" +
+                        utcStr.substring(10,12) + ":" +
+                        utcStr.substring(12,14) + " UTC";
+                    document.getElementById("utcTime").textContent = formatted;
+                }
+
+                // Movement data
+                const groundSpeedKmh = data.ground_speed?.toFixed(1) || "--";
+                const groundSpeedMph = data.ground_speed ? (data.ground_speed * 0.621371).toFixed(1) : "--"
+                document.getElementById("groundSpeed").textContent = `${groundSpeedKmh} km/h (${groundSpeedMph} mph)`;
+                document.getElementById("groundCourse").textContent = data.ground_course?.toFixed(1) + "°" || "--";
+
+                // Accuracy data
+                document.getElementById("hdop").textContent = data.hdop?.toFixed(1) || "--";
+                document.getElementById("pdop").textContent = data.pdop?.toFixed(1) || "--";
+                document.getElementById("vdop").textContent = data.vdop?.toFixed(1) || "--";
+
+                // Satellite data
+                document.getElementById("gpsInView").textContent = data.gps_in_view || "--";
+                document.getElementById("gnssUsed").textContent = data.gnss_used || "--";
+                document.getElementById("glonassInView").textContent = data.glonass_in_view || "--";
+
+                // Update timestamp
+                document.getElementById("lastUpdate").textContent = "Last update: " + new Date().toLocaleTimeString();
+            }
+
+            // Allow Enter key to connect
+            document.getElementById("wsUrl").addEventListener("keypress", function(e) {
+                if (e.key === "Enter") {
+                    connectWebSocket();
+                }
+            });
+        </script>
+    </body>
+</html>
