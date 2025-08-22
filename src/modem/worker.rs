@@ -1,4 +1,5 @@
 use std::time::Duration;
+use rppal::gpio;
 use anyhow::{anyhow, Result};
 use tracing::log::{debug, error, info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,9 +14,11 @@ use crate::modem::types::{ModemIncomingMessage, ModemResponse, ModemStatus};
 
 macro_rules! init_cmd {
     ($cmd:expr, $resp:expr) => {
-        ($cmd.to_string(), $resp.as_bytes().to_vec())
+        ($cmd.as_bytes().to_vec(), $resp.as_bytes().to_vec())
     };
 }
+
+const GPIO_POWER_PIN: u8 = 4;
 
 #[derive(Debug)]
 pub enum WorkerEvent {
@@ -27,33 +30,48 @@ pub struct ModemWorker {
     port: SerialStream,
     status: ModemStatus,
     state_machine: ModemStateMachine,
-    read_buffer: Box<[u8]>,
+    power_pin: Option<gpio::OutputPin>,
     main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     worker_event_rx: mpsc::UnboundedReceiver<WorkerEvent>,
     config: ModemConfig
 }
 impl ModemWorker {
-    pub fn new(port: SerialStream, main_tx: mpsc::UnboundedSender<ModemIncomingMessage>, config: ModemConfig) -> Self {
+    pub fn new(port: SerialStream, main_tx: mpsc::UnboundedSender<ModemIncomingMessage>, config: ModemConfig) -> Result<Self> {
         let (worker_event_tx, worker_event_rx) = mpsc::unbounded_channel();
 
-        Self {
+        // Get the Pi's GPIO power pin.
+        let power_pin = if config.gpio_power_pin {
+            Some(gpio::Gpio::new()?.get(GPIO_POWER_PIN)?.into_output())
+        } else {
+            None
+        };
+
+        Ok(Self {
             port,
             status: ModemStatus::Startup,
             state_machine: ModemStateMachine::new(worker_event_tx),
-            read_buffer: vec![0u8; config.read_buffer_size].into_boxed_slice(),
+            power_pin,
             main_tx,
             worker_event_rx,
             config
-        }
+        })
     }
 
     pub async fn initialize_and_run(
         mut self,
         command_rx: mpsc::Receiver<OutgoingCommand>
     ) -> Result<()> {
+
+        // Test the initial connection, toggling GPIO power pin if it fails.
+        // This should ensure the hat is always powered on just before initialization.
+        match self.test_connection().await {
+            Ok(_) => info!("Modem is already online for initial connection test! This could be the result of a service restart."),
+            Err(_) => self.toggle_gpio_power().await
+        }
+
         match self.initialize_modem().await {
             Ok(()) => {
-                info!("Modem initialized successfully");
+                info!("Modem initialized successfully!");
                 self.set_status(ModemStatus::Online);
             }
             Err(e) => {
@@ -82,7 +100,8 @@ impl ModemWorker {
         let mut timeout_interval = interval(Duration::from_secs(1));
         let mut reconnect_interval = interval(Duration::from_secs(30));
 
-        info!("Started ModemWorker");
+        debug!("Starting ModemWorker status loop.");
+        let mut read_buffer =  vec![0u8; self.config.read_buffer_size];
         loop {
             match self.status {
                 ModemStatus::Online => {
@@ -105,7 +124,7 @@ impl ModemWorker {
                         },
 
                         // Main reader.
-                        result = self.port.read(&mut self.read_buffer) => {
+                        result = self.port.read(&mut read_buffer) => {
                             match result {
                                 Ok(0) => {
                                     warn!("Serial port closed, going offline");
@@ -113,7 +132,7 @@ impl ModemWorker {
                                 },
                                 Ok(n) => {
                                     let main_tx = &self.main_tx;
-                                    for line_event in line_buffer.process_data(&self.read_buffer[..n]) {
+                                    for line_event in line_buffer.process_data(&read_buffer[..n]) {
                                         if let Err(e) = self.state_machine.transition_state(main_tx, line_event).await {
                                             error!("Error processing modem event: {:?}", e);
                                             self.state_machine.reset_to_idle();
@@ -228,13 +247,14 @@ impl ModemWorker {
             Err(e) => error!("Failed to send ModemOnlineStatusUpdate, Status: {:?}, Error: {}", status, e)
         }
     }
+
     async fn try_reconnect(&mut self) -> Result<bool> {
         if self.status != ModemStatus::Offline {
             return Ok(false);
         }
 
         match self.test_connection().await {
-            Ok(()) => {
+            Ok(_) => {
                 debug!("Basic connection test passed, initializing modem...");
 
                 // Re-initialize the modem after reconnection
@@ -252,15 +272,19 @@ impl ModemWorker {
             }
             Err(e) => {
                 debug!("Basic connection test failed: {}", e);
+                if self.config.gpio_repower {
+                    self.toggle_gpio_power().await;
+                } else {
+                    debug!("GPIO repower is disabled, not toggling power pin after failed connection test!");
+                }
                 Ok(false)
             }
         }
     }
 
     async fn initialize_modem(&mut self) -> Result<()> {
-        let mut initialization_commands: Vec<(String, Vec<u8>)> = vec![
+        let mut initialization_commands: Vec<(Vec<u8>, Vec<u8>)> = vec![
             init_cmd!("ATZ\r\n", "OK"),                // Reset
-            init_cmd!("AT\r\n", "OK"),                 // Test connection
             init_cmd!("ATE0\r\n", "OK"),               // Disable echo
             init_cmd!("AT+CMGF=0\r\n", "OK"),          // Set SMS message format to PDU
             init_cmd!("AT+CSCS=\"GSM\"\r\n", "OK"),    // Use GSM 7-bit alphabet
@@ -276,14 +300,15 @@ impl ModemWorker {
             initialization_commands.push(init_cmd!("AT+CGPSRST=0\r\n", "OK")); // Cold start
 
             // Create GNSS report interval command (0 = disabled).
-            let interval_command= format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval);
+            let interval_command = format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval).as_bytes().to_vec();
             initialization_commands.push((interval_command, b"OK".to_vec())); // Set navigation URC report interval
         }
 
         for (command, expected) in initialization_commands {
-            debug!("Sending initialization command: {}", command.trim());
+            let command_str = String::from_utf8_lossy(&command);
+            debug!("Sending initialization command: {:?}", command_str);
 
-            self.port.write_all(command.as_bytes()).await?;
+            self.port.write_all(&*command).await?;
 
             let response = self.read_response_until_ok().await?;
             let response_str = String::from_utf8_lossy(&response);
@@ -292,8 +317,8 @@ impl ModemWorker {
             debug!("Response: {}", response_str.trim());
             if !response_str.contains(&*expected_str) {
                 return Err(anyhow!(
-                    "Initialization command '{}' failed. Expected: '{}', Got: '{}'",
-                    command.trim(), expected_str, response_str.trim()
+                    "Initialization command '{:?}' failed. Expected: '{}', Got: '{}'",
+                    command_str, expected_str, response_str.trim()
                 ));
             }
         }
@@ -337,25 +362,26 @@ impl ModemWorker {
     async fn test_connection(&mut self) -> Result<()> {
         self.port.write_all(b"AT\r\n").await?;
 
-        let mut buf = [0u8; 64];
-        let timeout = Duration::from_secs(2);
+        let response = tokio::time::timeout(Duration::from_secs(2), self.read_response_until_ok())
+            .await
+            .map_err(|_| anyhow!("Connection test timed out"))??;
 
-        tokio::time::timeout(timeout, async {
-            loop {
-                match self.port.try_read(&mut buf) {
-                    Ok(n) if n > 0 => {
-                        let response = String::from_utf8_lossy(&buf[..n]);
-                        if response.contains("OK") {
-                            return Ok(());
-                        }
-                    }
-                    Ok(_) => tokio::time::sleep(Duration::from_millis(100)).await,
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        tokio::time::sleep(Duration::from_millis(100)).await
-                    },
-                    Err(e) => return Err(anyhow!("Connection test error: {}", e)),
-                }
-            }
-        }).await.map_err(|_| anyhow!("Timeout testing connection"))?
+        let response_str = String::from_utf8_lossy(&response);
+        if response_str.contains("OK") {
+            Ok(())
+        } else {
+            Err(anyhow!("Connection test failed: received '{}'", response_str.trim()))
+        }
+    }
+
+    async fn toggle_gpio_power(&mut self) {
+        if let Some(pin) = &mut self.power_pin {
+            info!("Toggling GPIO power pin!");
+
+            // High, 4s, Low.
+            pin.set_low();
+            tokio::time::sleep(Duration::from_millis(4000)).await;
+            pin.set_high();
+        }
     }
 }

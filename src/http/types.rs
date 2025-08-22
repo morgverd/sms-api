@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use crate::events::EventType;
 
 pub type JsonResult<T> = Result<Json<HttpResponse<T>>, (StatusCode, Json<HttpResponse<T>>)>;
 
@@ -67,4 +69,31 @@ pub struct SetLogLevelRequest {
 pub struct SendSmsResponse {
     pub message_id: i64,
     pub reference_id: u8
+}
+
+#[derive(Deserialize)]
+pub struct WebSocketQuery {
+    pub events: Option<String>
+}
+impl WebSocketQuery {
+    pub fn get_event_types(&self) -> Option<Vec<EventType>> {
+        match &self.events {
+            Some(events_str) if events_str == "*" => None, // Accept all events
+            Some(events_str) => {
+                let events: Vec<EventType> = events_str
+                    .split(',')
+                    .filter_map(|s| EventType::try_from(s.trim()).ok())
+                    .collect::<HashSet<_>>()
+                    .into_iter()
+                    .collect();
+
+                if events.is_empty() {
+                    None // If no valid events parsed, accept all
+                } else {
+                    Some(events)
+                }
+            },
+            None => None // No filter specified, accept all events
+        }
+    }
 }

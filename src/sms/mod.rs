@@ -10,7 +10,7 @@ use pdu_rs::gsm_encoding::GsmMessageData;
 use pdu_rs::pdu::{DataCodingScheme, MessageType, PduFirstOctet, SubmitPdu, VpFieldValidity};
 use tokio::sync::Mutex;
 use crate::config::DatabaseConfig;
-use crate::webhooks::{WebhookEvent, WebhookSender};
+use crate::events::{Event, EventBroadcaster};
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
@@ -20,16 +20,16 @@ use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessag
 pub struct SMSManager {
     modem: ModemSender,
     database: Arc<SMSDatabase>,
-    webhooks: Option<WebhookSender>,
+    broadcaster: Option<EventBroadcaster>
 }
 impl SMSManager {
     pub async fn connect(
         config: DatabaseConfig,
         modem: ModemSender,
-        webhooks: Option<WebhookSender>
+        broadcaster: Option<EventBroadcaster>
     ) -> Result<Self> {
         let database = Arc::new(SMSDatabase::connect(config).await?);
-        Ok(Self { modem, database, webhooks })
+        Ok(Self { modem, database, broadcaster })
     }
 
     fn create_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
@@ -110,11 +110,11 @@ impl SMSManager {
             Err(e) => Err(e)
         };
 
-        // Send outgoing message webhook event.
-        if let Some(webhooks) = &self.webhooks {
-            webhooks.send(WebhookEvent::OutgoingMessage(
+        // Broadcast event.
+        if let Some(broadcaster) = &self.broadcaster {
+            broadcaster.broadcast(Event::OutgoingMessage(
                 new_message.with_message_id(message_id_result.as_ref().ok().copied())
-            ));
+            )).await;
         }
 
         match message_id_result {
@@ -153,11 +153,11 @@ impl SMSReceiver {
 
         let row_id = self.manager.database.insert_message(&message, false).await;
 
-        // Send incoming message webhook event.
-        if let Some(webhooks) = &self.manager.webhooks {
-            webhooks.send(WebhookEvent::IncomingMessage(
+        // Send incoming event.
+        if let Some(broadcaster) = &self.manager.broadcaster {
+            broadcaster.broadcast(Event::IncomingMessage(
                 message.with_message_id(row_id.as_ref().ok().copied())
-            ));
+            )).await;
         }
 
         Some(row_id)
@@ -175,13 +175,13 @@ impl SMSReceiver {
         let is_final = report.status.is_success() || report.status.is_permanent_error();
         let status = u8::from(&SMSStatus::from(report.status));
 
-        // Send delivery report webhook event.
+        // Send delivery report event.
         let sms_status = SMSStatus::from(report.status);
-        if let Some(webhooks) = &self.manager.webhooks {
-            webhooks.send(WebhookEvent::DeliveryReport {
+        if let Some(broadcaster) = &self.manager.broadcaster {
+            broadcaster.broadcast(Event::DeliveryReport {
                 message_id,
                 report
-            })
+            }).await;
         }
 
         self.manager.database.insert_delivery_report(message_id, status, is_final).await?;

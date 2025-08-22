@@ -1,18 +1,30 @@
 mod routes;
 mod types;
+pub mod websocket;
 
 use anyhow::{bail, Result};
 use axum::routing::{get, post};
 use tracing::log::{info, warn};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
-use crate::http::routes::*;
-use crate::app::HttpState;
+use crate::TracingReloadHandle;
 use crate::http::types::{HttpResponse, JsonResult};
 use crate::modem::types::{ModemRequest, ModemResponse};
+use crate::config::HTTPConfig;
+use crate::sms::SMSManager;
+use crate::http::websocket::WebSocketManager;
+use crate::http::routes::*;
 
 #[cfg(feature = "sentry")]
 use sentry::integrations::tower::{NewSentryLayer, SentryHttpLayer};
+
+#[derive(Clone)]
+pub struct HttpState {
+    pub sms_manager: SMSManager,
+    pub config: HTTPConfig,
+    pub tracing_reload: TracingReloadHandle,
+    pub websocket: Option<WebSocketManager>
+}
 
 async fn get_modem_json_result(
     state: HttpState,
@@ -64,7 +76,13 @@ async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
+pub fn create_app(
+    config: HTTPConfig,
+    websocket: Option<WebSocketManager>,
+    sms_manager: SMSManager,
+    tracing_reload: TracingReloadHandle,
+    _sentry: bool
+) -> Result<axum::Router> {
     let mut router = axum::Router::new()
         .route("/db/sms", post(db_sms))
         .route("/db/latest-numbers", post(db_latest_numbers))
@@ -83,24 +101,31 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
             ServiceBuilder::new().layer(CorsLayer::permissive())
         );
 
-    // Add optional authentication middleware.
-    let auth_token = std::env::var("SMS_HTTP_AUTH_TOKEN");
-    if state.config.require_authentication && auth_token.is_err() {
-        bail!("Missing required SMS_HTTP_AUTH_TOKEN environment variable, and require_authentication is enabled");
+    // Add optional websocket route if there is a manager.
+    if websocket.is_some() {
+        info!("Adding WebSocket broadcaster HTTP route!");
+        router = router.route("/ws", get(websocket_upgrade));
     }
-    if let Ok(token) = auth_token {
-        info!("Adding HTTP authentication middleware!");
-        router = router.layer(
-            axum::middleware::from_fn_with_state(token, auth_middleware)
-        );
+
+    // Add optional authentication middleware.
+    if config.require_authentication {
+        match std::env::var("SMS_HTTP_AUTH_TOKEN") {
+            Ok(token) => {
+                info!("Adding HTTP authentication middleware!");
+                router = router.layer(
+                    axum::middleware::from_fn_with_state(token, auth_middleware)
+                );
+            },
+            Err(_) => bail!("Missing required SMS_HTTP_AUTH_TOKEN environment variable, and require_authentication is enabled!")
+        }
     } else {
-        warn!("Serving HTTP without authentication middleware due to missing/invalid SMS_HTTP_AUTH_TOKEN");
+        warn!("Serving HTTP without authentication middleware, as require_authentication is disabled!");
     }
 
     // If Sentry is enabled, include axum integration layers.
     #[cfg(feature = "sentry")]
     if _sentry {
-        tracing::log::debug!("Adding Sentry Axum layer");
+        info!("Adding Sentry HTTP layer!");
         router = router
             .layer(
                 ServiceBuilder::new().layer(NewSentryLayer::<axum::http::Request<axum::body::Body>>::new_from_top())
@@ -110,5 +135,12 @@ pub fn create_app(state: HttpState, _sentry: bool) -> Result<axum::Router> {
             )
     }
 
+    // Shared HTTP route state.
+    let state = HttpState {
+        sms_manager,
+        config,
+        tracing_reload,
+        websocket
+    };
     Ok(router.with_state(state))
 }

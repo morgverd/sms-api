@@ -4,11 +4,13 @@ mod sms;
 mod config;
 pub mod webhooks;
 pub mod app;
+pub mod events;
 
 use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use dotenv::dotenv;
+use tracing::log::info;
 use tracing_subscriber::{fmt, reload, EnvFilter, Registry};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -75,6 +77,8 @@ fn init_tracing() -> TracingReloadHandle {
     let registry = registry.with(sentry_tracing::layer());
 
     registry.init();
+    info!("SMS-API Version: {}.", VERSION);
+
     reload_handle
 }
 

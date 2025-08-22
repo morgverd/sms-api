@@ -9,6 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use reqwest::header::{HeaderMap, HeaderName};
 use serde::Deserialize;
+use crate::events::EventType;
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -50,11 +51,17 @@ pub struct ModemConfig {
     #[serde(default = "default_modem_baud")]
     pub baud: u32,
 
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub gnss_enabled: bool,
 
     #[serde(default = "default_gnss_report_interval")]
-    pub gnss_report_interval: u8,
+    pub gnss_report_interval: u32,
+
+    #[serde(default = "default_false")]
+    pub gpio_power_pin: bool,
+
+    #[serde(default = "default_true")]
+    pub gpio_repower: bool,
 
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
@@ -71,8 +78,10 @@ impl Default for ModemConfig {
         Self {
             device: default_modem_device(),
             baud: default_modem_baud(),
-            gnss_enabled: default_true(),
+            gnss_enabled: default_false(),
             gnss_report_interval: default_gnss_report_interval(),
+            gpio_power_pin: default_false(),
+            gpio_repower: default_true(),
             cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
             read_buffer_size: default_modem_read_buffer_size(),
             line_buffer_size: default_modem_read_buffer_size()
@@ -95,7 +104,7 @@ pub struct ConfiguredWebhook {
 
     /// By default, this is only IncomingMessage.
     #[serde(default = "default_webhook_events")]
-    pub events: Vec<ConfiguredWebhookEvent>,
+    pub events: Vec<EventType>,
 
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
@@ -114,24 +123,6 @@ impl ConfiguredWebhook {
 
         Ok(Some(out))
     }
-}
-
-#[derive(Eq, PartialEq, Hash, Debug, Clone, Copy, Deserialize)]
-pub enum ConfiguredWebhookEvent {
-    #[serde(rename = "incoming")]
-    IncomingMessage,
-
-    #[serde(rename = "outgoing")]
-    OutgoingMessage,
-
-    #[serde(rename = "delivery")]
-    DeliveryReport,
-
-    #[serde(rename = "modem_status_update")]
-    ModemStatusUpdate,
-
-    #[serde(rename = "gnss_position_report")]
-    GNSSPositionReport
 }
 
 #[cfg(feature = "sentry")]
@@ -164,7 +155,10 @@ pub struct HTTPConfig {
     pub send_international_format_only: bool,
 
     #[serde(default = "default_true")]
-    pub require_authentication: bool
+    pub require_authentication: bool,
+
+    #[serde(default = "default_true")]
+    pub websocket_enabled: bool
 }
 impl Default for HTTPConfig {
     fn default() -> Self {
@@ -172,7 +166,8 @@ impl Default for HTTPConfig {
             enabled: false,
             address: default_http_address(),
             send_international_format_only: default_true(),
-            require_authentication: default_true()
+            require_authentication: default_true(),
+            websocket_enabled: default_true()
         }
     }
 }
@@ -181,9 +176,10 @@ fn default_modem_device() -> String { "/dev/ttyS0".to_string() }
 fn default_modem_baud() -> u32 { 115200 }
 fn default_modem_cmd_buffer_size() -> usize { 32 }
 fn default_modem_read_buffer_size() -> usize { 4096 }
-fn default_webhook_events() -> Vec<ConfiguredWebhookEvent> { vec![ConfiguredWebhookEvent::IncomingMessage] }
+fn default_webhook_events() -> Vec<EventType> { vec![EventType::IncomingMessage] }
 fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
-fn default_gnss_report_interval() -> u8 { 0 }
+fn default_gnss_report_interval() -> u32 { 0 }
+fn default_false() -> bool { false }
 fn default_true() -> bool { true }
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
