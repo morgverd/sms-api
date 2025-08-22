@@ -94,7 +94,6 @@ macro_rules! http_post_handler {
     };
 }
 
-#[macro_export]
 macro_rules! http_modem_handler {
     ($fn_name:ident, $modem_req:expr) => {
         pub async fn $fn_name(

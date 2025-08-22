@@ -57,6 +57,12 @@ pub struct ModemConfig {
     #[serde(default = "default_gnss_report_interval")]
     pub gnss_report_interval: u32,
 
+    #[serde(default = "default_false")]
+    pub gpio_power_pin: bool,
+
+    #[serde(default = "default_true")]
+    pub gpio_repower: bool,
+
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
     pub cmd_channel_buffer_size: usize,
@@ -74,6 +80,8 @@ impl Default for ModemConfig {
             baud: default_modem_baud(),
             gnss_enabled: default_false(),
             gnss_report_interval: default_gnss_report_interval(),
+            gpio_power_pin: default_false(),
+            gpio_repower: default_true(),
             cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
             read_buffer_size: default_modem_read_buffer_size(),
             line_buffer_size: default_modem_read_buffer_size()

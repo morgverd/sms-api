@@ -42,7 +42,7 @@ impl ModemManager {
             .open_native_async()
             .map_err(|e| anyhow!("Failed to open serial port {}: {}", self.config.device, e))?;
 
-        let worker = ModemWorker::new(port, self.main_tx.clone(), self.config.clone());
+        let worker = ModemWorker::new(port, self.main_tx.clone(), self.config.clone())?;
         let handle = tokio::spawn(async move {
             if let Err(e) = worker.initialize_and_run(command_rx).await {
                 error!("ModemWorker error: {}", e);
