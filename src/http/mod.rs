@@ -95,6 +95,7 @@ pub fn create_app(
         .route("/sms/battery-level", get(sms_get_battery_level))
         .route("/gnss/status", get(gnss_get_status))
         .route("/gnss/location", get(gnss_get_location))
+        .route("/sys/phone-number", get(sys_phone_number))
         .route("/sys/version", get(sys_version))
         .route("/sys/set-log-level", post(sys_set_log_level))
         .layer(

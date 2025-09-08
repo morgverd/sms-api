@@ -66,6 +66,9 @@ require_authentication = true
 # Should the websocket event route (/ws) be served?
 websocket_enabled = true
 
+# An optional phone number that is returned in /sys/phone-number. This is used as a unique identifier for client discovery.
+phone_number = "+44..."
+
 # --------------------------------------------------------------------------------
 # [OPTIONAL] Sentry error tracking and monitoring (requires sentry feature to be enabled)
 [sentry]

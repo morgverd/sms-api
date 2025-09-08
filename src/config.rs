@@ -158,7 +158,10 @@ pub struct HTTPConfig {
     pub require_authentication: bool,
 
     #[serde(default = "default_true")]
-    pub websocket_enabled: bool
+    pub websocket_enabled: bool,
+
+    #[serde(default)]
+    pub phone_number: Option<String>
 }
 impl Default for HTTPConfig {
     fn default() -> Self {
@@ -167,7 +170,8 @@ impl Default for HTTPConfig {
             address: default_http_address(),
             send_international_format_only: default_true(),
             require_authentication: default_true(),
-            websocket_enabled: default_true()
+            websocket_enabled: default_true(),
+            phone_number: None
         }
     }
 }

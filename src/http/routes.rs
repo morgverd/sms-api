@@ -35,14 +35,18 @@ macro_rules! http_get_handler {
     (
         $fn_name:ident,
         $response_type:ty,
-        $callback:block
+        |$state:ident| $callback:block
     ) => {
-        pub async fn $fn_name() -> crate::http::types::JsonResult<$response_type> {
-            async fn inner() -> anyhow::Result<$response_type> {
+        pub async fn $fn_name(
+            axum::extract::State($state): axum::extract::State<crate::http::HttpState>
+        ) -> crate::http::types::JsonResult<$response_type> {
+            async fn inner(
+                $state: crate::http::HttpState,
+            ) -> anyhow::Result<$response_type> {
                 $callback
             }
 
-            let result = inner().await;
+            let result = inner($state).await;
             http_response_handler!(result)
         }
     };
@@ -177,7 +181,13 @@ http_modem_handler!(gnss_get_location, ModemRequest::GetGNSSLocation);
 http_get_handler!(
     sys_version,
     &'static str,
-    { Ok(crate::VERSION) }
+    |_state| { Ok(crate::VERSION) }
+);
+
+http_get_handler!(
+    sys_phone_number,
+    Option<String>,
+    |state| { Ok(state.config.phone_number) }
 );
 
 http_post_handler!(
