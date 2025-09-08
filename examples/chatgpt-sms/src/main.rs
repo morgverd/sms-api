@@ -1,3 +1,5 @@
+mod types;
+
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::Arc;
@@ -8,11 +10,11 @@ use axum::response::Json as ResponseJson;
 use axum::Router;
 use axum::routing::post;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{error, debug, warn, info, instrument};
 use dashmap::DashMap;
+use crate::types::*;
 
 const CHATGPT_MODEL: &str = "gpt-4.1-mini";
 const HISTORY_LIMIT: usize = 20;
@@ -20,61 +22,10 @@ const CHATGPT_TEMPERATURE: f32 = 0.8;
 const CHATGPT_SYSTEM_PROMPT: &str = "You are an SMS assistant named Dexter, Always reply in short, clear SMS-style messages—never write more than 2-3 sentences per reply. Keep your tone friendly, upbeat, and a little bit witty, like a helpful buddy. Use contractions, emojis (if appropriate), and text as real people do via SMS. Never use formal or overly technical language. No long explanations or paragraphs—keep it brief but helpful! Do not reference that you are an AI or digital assistant. Always sound personable and natural.";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Deserialize)]
-struct WebhookPayload {
-    #[serde(rename = "type")]
-    webhook_type: String,
-    data: WebhookMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct WebhookMessage {
-    phone_number: String,
-    message_content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ChatGPTCompletionRequest {
-    model: &'static str,
-    temperature: f32,
-    messages: Vec<ChatMessage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatGPTCompletionResponse {
-    choices: Vec<ChatGPTCompletionChoice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatGPTCompletionChoice {
-    message: ChatMessage,
-}
-
-#[derive(Serialize)]
-struct SendReplyRequest {
-    to: String,
-    content: String,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-}
-
-#[derive(Debug)]
-struct MessageTask {
-    phone_number: String,
-    message_content: String,
-}
-
 #[derive(thiserror::Error, Debug)]
 enum AppError {
+    #[error("Missing required {0} environment variable!")]
+    MissingEnvironmentVariable(&'static str),
     #[error("OpenAI API error: {0}")]
     OpenAI(String),
     #[error("SMS API error: {0}")]
@@ -82,7 +33,7 @@ enum AppError {
     #[error("Network error: {0}")]
     Network(#[from] reqwest::Error),
     #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
+    Serialization(#[from] serde_json::Error)
 }
 
 type Result<T> = std::result::Result<T, AppError>;
@@ -90,26 +41,29 @@ type Result<T> = std::result::Result<T, AppError>;
 #[derive(Clone)]
 struct AppState {
     message_history: Arc<Mutex<HashMap<String, VecDeque<ChatMessage>>>>,
-    http_client: Client,
-    sms_send_url: String,
-    openai_key: String,
     phone_queues: Arc<DashMap<String, mpsc::UnboundedSender<MessageTask>>>,
+    sms_send_url: String,
+    sms_send_auth: Option<String>,
+    openai_key: String,
+    http_client: Client
 }
 
 impl AppState {
-    fn new(sms_send_url: String, openai_key: String) -> Self {
+    fn from_env() -> Result<Self> {
         let http_client = Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .build()
             .expect("Failed to create HTTP client");
 
-        Self {
+        let state = Self {
             message_history: Arc::new(Mutex::new(HashMap::new())),
-            http_client,
-            sms_send_url,
-            openai_key,
             phone_queues: Arc::new(DashMap::new()),
-        }
+            sms_send_url: env::var("SMS_SEND_URL").map_err(|_| AppError::MissingEnvironmentVariable("SMS_SEND_URL"))?,
+            sms_send_auth: env::var("SMS_SEND_AUTH").ok(),
+            openai_key: env::var("OPENAI_KEY").map_err(|_| AppError::MissingEnvironmentVariable("OPENAI_KEY"))?,
+            http_client
+        };
+        Ok(state)
     }
 
     async fn get_or_create_queue(&self, phone_number: &str) -> mpsc::UnboundedSender<MessageTask> {
@@ -195,18 +149,21 @@ impl AppState {
             messages: all_messages,
         };
 
-        // Send chat completion request with history.
-        debug!("Sending request to ChatGPT API");
-
-        match self
+        // Send chat completion request with history (including optional authorization).
+        let mut builder = self
             .http_client
             .post("https://api.openai.com/v1/chat/completions")
             .header("Authorization", format!("Bearer {}", self.openai_key))
             .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await
-        {
+            .json(&request_body);
+
+        if let Some(auth) = &self.sms_send_auth {
+            builder = builder.header("Authorization", auth);
+        }
+
+        // Send SMS message request with authorization header.
+        debug!("Sending request to ChatGPT API");
+        match builder.send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     match response.json::<ChatGPTCompletionResponse>().await {
@@ -399,11 +356,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let sms_send_url = env::var("SMS_SEND_URL").expect("Missing required SMS_SEND_URL env var!");
-    let openai_key = env::var("OPENAI_KEY").expect("Missing required OPENAI_KEY env var!");
-
-    let state = AppState::new(sms_send_url, openai_key);
-
+    let state = AppState::from_env()?;
     let app = Router::new()
         .route("/webhook", post(http_webhook))
         .with_state(state);

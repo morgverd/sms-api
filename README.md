@@ -212,6 +212,7 @@ broadcast a position GPS position report with longitude, latitude, speed, etc.
 | `POST /db/latest-numbers`   | -                | Query all latest numbers (sender or receiver) with optional pagination.                  |
 | `POST /db/delivery-reports` | -                | Query all delivery reports for a `message_id` with optional pagination.                  |
 | `GET /sys/version`          | -                | Get the current build `version` content.                                                 |
+| `GET /sys/phone-number`     | -                | Optionally access the phone number used as an identifier in HTTP config.                 |
 | `POST /sys/set-log-level`   | -                | Set the tracing level filter for stdout, useful for live debugging.                      |
 
 ## Limitations

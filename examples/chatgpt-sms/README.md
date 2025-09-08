@@ -7,15 +7,13 @@ An example HTTP webhook server that receives incoming SMS messages via webhook a
 - Queues incoming messages to preserve response order.
 - Message history can be cleared by sending a message with only `#`
 
-## Running
+## Environment Variables
 
-The following environment variables must be set:
-
-- `OPENAI_KEY` - ChatGPT API key.
-- `SMS_SEND_URL` - Full URL to SMS-API send, eg: `http://127.0.0.1:3000/sms/send` 
-
-> This is just an example, so it does not include proper authorization in the form of verifying webhook request headers etc.
-> If this is actually used, consider using a proxy.
+| Variable        | Description                                                               | Required |
+|-----------------|---------------------------------------------------------------------------|----------|
+| `OPENAI_KEY`    | ChatGPT API key, which has read access to `/v1/chat/completions`.         | Yes      |
+| `SMS_SEND_URL`  | Full URL to SMS-API send, eg: `http://127.0.0.1:3000/sms/send`            | Yes      |
+| `SMS_SEND_AUTH` | An optional token value to send as Authorization header for SMS_SEND_URL. | No       |
 
 ## Webhook Config
 
