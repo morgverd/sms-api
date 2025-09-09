@@ -57,7 +57,13 @@ pub struct GlobalFetchRequest {
 #[derive(Deserialize)]
 pub struct SendSmsRequest {
     pub to: String,
-    pub content: String
+    pub content: String,
+
+    #[serde(default)]
+    pub flash: bool,
+
+    #[serde(default)]
+    pub validity_period: Option<u8>
 }
 
 #[derive(Deserialize)]

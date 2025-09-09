@@ -6,9 +6,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{bail, Result};
 use tracing::log::{debug, warn};
-use pdu_rs::gsm_encoding::GsmMessageData;
-use pdu_rs::pdu::{DataCodingScheme, MessageType, PduFirstOctet, SubmitPdu, VpFieldValidity};
 use tokio::sync::Mutex;
+use pdu_rs::{pdu, gsm_encoding};
 use crate::config::DatabaseConfig;
 use crate::events::{Event, EventBroadcaster};
 use crate::modem::sender::ModemSender;
@@ -33,27 +32,27 @@ impl SMSManager {
     }
 
     fn create_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
-        let requests = GsmMessageData::encode_message(&*message.content)
+        let requests = gsm_encoding::GsmMessageData::encode_message(&*message.content)
             .into_iter()
             .map(|data| {
-                let pdu = SubmitPdu {
+                let pdu = pdu::SubmitPdu {
                     sca: None,
-                    first_octet: PduFirstOctet {
-                        mti: MessageType::SmsSubmit,
+                    first_octet: pdu::PduFirstOctet {
+                        mti: pdu::MessageType::SmsSubmit,
                         rd: false,
-                        vpf: VpFieldValidity::Relative,
+                        vpf: pdu::VpFieldValidity::Relative,
                         srr: true,
                         udhi: data.udh,
                         rp: false
                     },
                     message_id: 0,
                     destination: message.phone_number.clone(),
-                    dcs: DataCodingScheme::Standard {
+                    dcs: pdu::DataCodingScheme::Standard {
                         compressed: false,
-                        class: None,
+                        class: message.flash.then(|| pdu::MessageClass::Silent),
                         encoding: data.encoding
                     },
-                    validity_period: 167,
+                    validity_period: if message.flash { 0 } else { message.get_validity_period() },
                     user_data: data.bytes,
                     user_data_len: data.user_data_len,
                 };

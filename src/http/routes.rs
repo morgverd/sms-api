@@ -159,6 +159,8 @@ http_post_handler!(
         let outgoing = SMSOutgoingMessage {
             phone_number,
             content: payload.content,
+            flash: payload.flash,
+            validity_period: payload.validity_period
         };
 
         let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;

@@ -36,7 +36,14 @@ impl SMSMessage {
 #[derive(Debug)]
 pub struct SMSOutgoingMessage {
     pub phone_number: PduAddress,
-    pub content: String
+    pub content: String,
+    pub flash: bool,
+    pub validity_period: Option<u8>
+}
+impl SMSOutgoingMessage {
+    pub fn get_validity_period(&self) -> u8 {
+        self.validity_period.unwrap_or(167) // 24hr
+    }
 }
 impl From<SMSOutgoingMessage> for SMSMessage {
     fn from(outgoing: SMSOutgoingMessage) -> Self {
@@ -48,7 +55,7 @@ impl From<SMSOutgoingMessage> for SMSMessage {
             is_outgoing: true,
             status: SMSStatus::Sent,
             created_at: None,
-            completed_at: None,
+            completed_at: None
         }
     }
 }
