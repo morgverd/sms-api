@@ -1,6 +1,6 @@
 [package]
 name = "sms-api"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 
 [features]
@@ -11,7 +11,7 @@ sentry = ["dep:sentry", "dep:sentry-tracing", "dep:sentry-anyhow", "dep:sentry-p
 pdu-rs = { git = "https://github.com/morgverd/pdu-rs", branch = "main" }
 tokio = { version = "1.45.1", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
-tower-http = { version = "0.6.6", features = ["cors"] }
+tower-http = { version = "0.6.6", features = ["cors", "set-header"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite"] }
 clap = { version = "4.5.39", features = ["derive"] }
 toml = { version = "0.9.5", default-features = false, features = ["serde", "parse"] }

@@ -3,10 +3,12 @@ mod types;
 pub mod websocket;
 
 use anyhow::{bail, Result};
+use axum::http::{HeaderName, HeaderValue};
 use axum::routing::{get, post};
 use tracing::log::{info, warn};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use crate::TracingReloadHandle;
 use crate::http::types::{HttpResponse, JsonResult};
 use crate::modem::types::{ModemRequest, ModemResponse};
@@ -98,6 +100,12 @@ pub fn create_app(
         .route("/sys/phone-number", get(sys_phone_number))
         .route("/sys/version", get(sys_version))
         .route("/sys/set-log-level", post(sys_set_log_level))
+        .layer(
+            SetResponseHeaderLayer::overriding(
+                HeaderName::from_static("x-version"),
+                HeaderValue::from_static(crate::VERSION)
+            )
+        )
         .layer(
             ServiceBuilder::new().layer(CorsLayer::permissive())
         );
