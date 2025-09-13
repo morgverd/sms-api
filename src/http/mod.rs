@@ -89,6 +89,8 @@ pub fn create_app(
         .route("/db/sms", post(db_sms))
         .route("/db/latest-numbers", post(db_latest_numbers))
         .route("/db/delivery-reports", post(db_delivery_reports))
+        .route("/db/friendly-names/set", post(friendly_names_set))
+        .route("/db/friendly-names/get", post(friendly_names_get))
         .route("/sms/send", post(sms_send))
         .route("/sms/network-status", get(sms_get_network_status))
         .route("/sms/signal-strength", get(sms_get_signal_strength))

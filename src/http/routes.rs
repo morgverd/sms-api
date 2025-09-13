@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 use crate::http::{HttpState, get_modem_json_result};
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
-use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery};
+use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery, SetFriendlyNameRequest, GetFriendlyNameRequest};
 use crate::http::websocket::{handle_websocket, WebSocketConnection};
 
 macro_rules! http_response_handler {
@@ -133,7 +133,7 @@ http_post_handler!(
 http_post_handler!(
     db_latest_numbers,
     Option<GlobalFetchRequest>,
-    Vec<String>,
+    Vec<(String, Option<String>)>,
     |state, payload| {
         let (limit, offset, reverse) = match payload {
             Some(req) => (req.limit, req.offset, req.reverse),
@@ -142,6 +142,29 @@ http_post_handler!(
 
         state.sms_manager.borrow_database()
             .get_latest_numbers(limit, offset, reverse)
+            .await
+    }
+);
+
+http_post_handler!(
+    friendly_names_set,
+    SetFriendlyNameRequest,
+    bool,
+    |state, payload| {
+        state.sms_manager.borrow_database()
+            .update_friendly_name(payload.phone_number, payload.friendly_name)
+            .await
+            .map(|_| true)
+    }
+);
+
+http_post_handler!(
+    friendly_names_get,
+    GetFriendlyNameRequest,
+    Option<String>,
+    |state, payload| {
+        state.sms_manager.borrow_database()
+            .get_friendly_name(payload.phone_number)
             .await
     }
 );

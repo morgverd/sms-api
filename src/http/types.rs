@@ -78,6 +78,17 @@ pub struct SendSmsResponse {
 }
 
 #[derive(Deserialize)]
+pub struct SetFriendlyNameRequest {
+    pub phone_number: String,
+    pub friendly_name: Option<String>
+}
+
+#[derive(Deserialize)]
+pub struct GetFriendlyNameRequest {
+    pub phone_number: String
+}
+
+#[derive(Deserialize)]
 pub struct WebSocketQuery {
     pub events: Option<String>
 }

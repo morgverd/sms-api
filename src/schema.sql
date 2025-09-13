@@ -9,6 +9,11 @@ CREATE TABLE IF NOT EXISTS messages (
     completed_at INTEGER DEFAULT NULL
 );
 
+CREATE TABLE IF NOT EXISTS friendly_names (
+    phone_number TEXT PRIMARY KEY,
+    friendly_name TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS send_failures (
     message_id INTEGER PRIMARY KEY,
     error_message TEXT NOT NULL,
@@ -30,3 +35,4 @@ CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 CREATE INDEX IF NOT EXISTS idx_messages_is_outgoing ON messages(is_outgoing);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_completed_at ON messages(completed_at);
+CREATE INDEX IF NOT EXISTS idx_friendly_name ON friendly_names(friendly_name);

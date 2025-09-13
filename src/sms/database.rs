@@ -166,26 +166,58 @@ impl SMSDatabase {
         Ok(())
     }
 
+    pub async fn update_friendly_name(&self, phone_number: String, friendly_name: Option<String>) -> Result<()> {
+        match friendly_name {
+            Some(name) => {
+                sqlx::query(
+                    "INSERT INTO friendly_names (phone_number, friendly_name) VALUES (?, ?) ON CONFLICT(phone_number) DO UPDATE SET friendly_name = excluded.friendly_name"
+                )
+                    .bind(&phone_number)
+                    .bind(&name)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| anyhow!(e))?;
+            },
+            None => {
+                sqlx::query("DELETE FROM friendly_names WHERE phone_number = ?")
+                    .bind(&phone_number)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| anyhow!(e))?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn get_friendly_name(&self, phone_number: String) -> Result<Option<String>> {
+        sqlx::query_scalar("SELECT friendly_name FROM friendly_names WHERE phone_number = ?")
+            .bind(phone_number)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| anyhow!(e))
+    }
+
     pub async fn get_latest_numbers(
         &self,
         limit: Option<u64>,
         offset: Option<u64>,
         reverse: bool
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<(String, Option<String>)>> {
         let query = build_pagination_query(
-            "SELECT phone_number FROM messages GROUP BY phone_number",
-            "MAX(created_at)",
+            "SELECT m.phone_number, f.friendly_name FROM messages m LEFT JOIN friendly_names f ON f.phone_number = m.phone_number GROUP BY m.phone_number",
+            "MAX(m.created_at)",
             limit,
             offset,
             reverse
         );
 
-        let result: Vec<Option<String>> = sqlx::query_scalar(&query)
+        let result: Vec<(String, Option<String>)> = sqlx::query_as(&query)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| anyhow!(e))?;
 
-        Ok(result.into_iter().flatten().collect())
+        Ok(result)
     }
 
     pub async fn get_messages(
