@@ -69,12 +69,18 @@ impl SMSManager {
     }
 
     /// Returns the database row ID and final modem response.
-    pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(i64, ModemResponse)> {
+    pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(Option<i64>, ModemResponse)> {
 
         // Send each send request for message, returning the last message.
         let mut last_response_opt = None;
         for request in Self::create_requests(&message)? {
-            let response = self.modem.send_command(request).await?;
+            let response = self.modem.send_command(request, message.timeout).await?;
+
+            // If one of the message parts return an error response, then return immediately
+            // as there's no use in continuing to send message parts for a broken concatenation.
+            if matches!(response, ModemResponse::Error(_)) {
+                return Ok((None, response));
+            }
             last_response_opt.replace(response);
         }
 
@@ -117,13 +123,13 @@ impl SMSManager {
         }
 
         match message_id_result {
-            Ok(message_id) => Ok((message_id, last_response)),
+            Ok(message_id) => Ok((Some(message_id), last_response)),
             Err(e) => Err(e)
         }
     }
-
+    
     pub async fn send_command(&self, request: ModemRequest) -> Result<ModemResponse> {
-        self.modem.send_command(request).await
+        self.modem.send_command(request, None).await
     }
 
     pub fn borrow_database(&self) -> &Arc<SMSDatabase> {

@@ -63,7 +63,10 @@ pub struct SendSmsRequest {
     pub flash: bool,
 
     #[serde(default)]
-    pub validity_period: Option<u8>
+    pub validity_period: Option<u8>,
+
+    #[serde(default)]
+    pub timeout: Option<u32>
 }
 
 #[derive(Deserialize)]
@@ -75,6 +78,16 @@ pub struct SetLogLevelRequest {
 pub struct SendSmsResponse {
     pub message_id: i64,
     pub reference_id: u8
+}
+
+#[derive(Serialize)]
+pub struct SmsDeviceInfo {
+    pub phone_number: Option<String>,
+    pub service_provider: Option<String>,
+    pub network_operator: Option<(u8, u8, String)>,
+    pub network_status: Option<(u8, u8)>,
+    pub battery: Option<(u8, u8, f32)>,
+    pub signal: Option<(i32, i32)>
 }
 
 #[derive(Deserialize)]

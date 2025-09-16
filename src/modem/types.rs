@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 use anyhow::{anyhow, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 
 #[derive(Debug, Clone)]
@@ -21,15 +21,15 @@ pub enum ModemRequest {
     GetGNSSLocation
 }
 impl ModemRequest {
-    pub fn get_timeout(&self) -> Duration {
+    pub fn get_default_timeout(&self) -> Duration {
         match self {
-            ModemRequest::SendSMS { .. } => Duration::from_secs(20),
+            ModemRequest::SendSMS { .. } => Duration::from_secs(30),
             _ => Duration::from_secs(5)
         }
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ModemResponse {
     SendResult(u8),
@@ -81,7 +81,7 @@ impl Display for ModemResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ModemStatus {
     Startup,
     Online,
@@ -150,7 +150,7 @@ pub enum ModemIncomingMessage {
     GNSSPositionReport(GNSSLocation)
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GNSSFixStatus {
     Unknown,
     NotFix,
@@ -181,7 +181,7 @@ impl From<u8> for GNSSFixStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GNSSLocation {
     run_status: bool,
     fix_status: bool,

@@ -38,7 +38,8 @@ pub struct SMSOutgoingMessage {
     pub phone_number: PduAddress,
     pub content: String,
     pub flash: bool,
-    pub validity_period: Option<u8>
+    pub validity_period: Option<u8>,
+    pub timeout: Option<u32>
 }
 impl SMSOutgoingMessage {
     pub fn get_validity_period(&self) -> u8 {

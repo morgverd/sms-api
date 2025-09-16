@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 use tokio::sync::oneshot;
 use anyhow::{anyhow, bail, Result};
 use tracing::log::{debug, error};
@@ -43,17 +44,32 @@ impl CommandState {
 pub struct OutgoingCommand {
     pub sequence: u32,
     pub request: ModemRequest,
+    timeout: Option<u32>,
     response_tx: Option<oneshot::Sender<ModemResponse>>,
 }
 impl OutgoingCommand {
-    pub fn new(sequence: u32, request: ModemRequest, response_tx: oneshot::Sender<ModemResponse>) -> Self {
+    pub fn new(
+        sequence: u32,
+        response_tx: oneshot::Sender<ModemResponse>,
+        request: ModemRequest,
+        timeout: Option<u32>
+    ) -> Self {
         Self {
             sequence,
             request,
+            timeout,
             response_tx: Some(response_tx)
         }
     }
 
+    /// Get the request specific timeout, this will use whatever is
+    /// provided in the response or the base timeout from the ModemRequest.
+    pub fn get_request_timeout(&self) -> Duration {
+        self.timeout.map(|t| Duration::from_secs(t as u64))
+            .unwrap_or_else(|| self.request.get_default_timeout())
+    }
+
+    /// Respond to the command with a final response.
     pub async fn respond(&mut self, response: ModemResponse) -> Result<()> {
         debug!("Attempting to respond to command #{} with: {:?}", self.sequence, response);
 
@@ -64,10 +80,7 @@ impl OutgoingCommand {
                     debug!("Successfully sent response for command #{}", self.sequence);
                     Ok(())
                 },
-                Err(response) => {
-                    error!("Failed to send response for command #{} - receiver likely dropped. Response was: {:?}", self.sequence, response);
-                    Err(anyhow!("Failed to respond to command #{} with: {:?}", self.sequence, response))
-                }
+                Err(response) => Err(anyhow!("Failed to respond to command #{} with: {:?}", self.sequence, response))
             }
         } else {
             error!("Attempted to respond to command #{} but response channel was already used", self.sequence);

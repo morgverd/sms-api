@@ -22,17 +22,19 @@ struct CommandExecution {
 }
 impl CommandExecution {
     fn new(command: OutgoingCommand, command_state: CommandState) -> Self {
-        let timeout = command.request.get_timeout();
         let context = CommandContext {
             sequence: command.sequence,
             state: command_state,
             response_buffer: String::new()
         };
 
+        let timeout = command.get_request_timeout();
+        debug!("Command #{} has request timeout: {:?}", command.sequence, timeout);
+
         Self {
             context,
             command,
-            timeout_at: Instant::now() + timeout,
+            timeout_at: Instant::now() + timeout
         }
     }
 

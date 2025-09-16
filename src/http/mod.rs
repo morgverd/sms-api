@@ -97,6 +97,7 @@ pub fn create_app(
         .route("/sms/network-operator", get(sms_get_network_operator))
         .route("/sms/service-provider", get(sms_get_service_provider))
         .route("/sms/battery-level", get(sms_get_battery_level))
+        .route("/sms/device-info", get(sms_get_device_info))
         .route("/gnss/status", get(gnss_get_status))
         .route("/gnss/location", get(gnss_get_location))
         .route("/sys/phone-number", get(sys_phone_number))

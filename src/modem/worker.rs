@@ -150,10 +150,7 @@ impl ModemWorker {
                         _ = timeout_interval.tick() => {
                             let timed_out = self.state_machine.handle_command_timeout()
                                 .await
-                                .unwrap_or_else(|e| {
-                                    error!("Error while handling command timeout: {:?}", e);
-                                    true
-                                });
+                                .unwrap_or(false);
 
                             if timed_out {
                                 line_buffer.clear();

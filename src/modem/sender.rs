@@ -1,6 +1,6 @@
 use std::time::Duration;
 use anyhow::{anyhow, bail};
-use tracing::log::{debug, error};
+use tracing::log::{debug, error, warn};
 use tokio::sync::{oneshot, mpsc};
 use anyhow::Result;
 use crate::modem::commands::{next_command_sequence, OutgoingCommand};
@@ -17,13 +17,13 @@ impl ModemSender {
         Self { command_tx }
     }
 
-    pub async fn send_command(&self, request: ModemRequest) -> Result<ModemResponse> {
+    pub async fn send_command(&self, request: ModemRequest, timeout: Option<u32>) -> Result<ModemResponse> {
         let sequence = next_command_sequence();
         let (tx, rx) = oneshot::channel();
 
-        let cmd = OutgoingCommand::new(sequence, request.clone(), tx);
         debug!("Queuing command sequence {}: {:?}", sequence, request);
-        
+        let cmd = OutgoingCommand::new(sequence, tx, request, timeout);
+
         // Try to queue without blocking.
         match self.command_tx.try_send(cmd) {
             Ok(_) => debug!("Command sequence {} successfully queued", sequence),
@@ -32,17 +32,18 @@ impl ModemSender {
         }
         
         // Wait for response with timeout.
-        match tokio::time::timeout(SEND_TIMEOUT, rx).await {
+        let timeout = timeout.map(|s| Duration::from_secs(s as u64 + 1)).unwrap_or(SEND_TIMEOUT);
+        match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(response)) => {
                 debug!("Command sequence {} completed with response: {:?}", sequence, response);
                 Ok(response)
-            }
+            },
             Ok(Err(e)) => {
                 error!("Command sequence {} response channel error: {:?}", sequence, e);
                 Err(anyhow!("Command sequence {} response channel closed", sequence))
             },
             Err(_) => {
-                error!("Command sequence {} timed out waiting for response", sequence);
+                warn!("Command sequence {} timed out waiting for response", sequence);
                 Err(anyhow!("Command sequence {} timed out waiting for response", sequence))
             }
         }

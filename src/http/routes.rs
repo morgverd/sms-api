@@ -8,7 +8,7 @@ use tracing_subscriber::EnvFilter;
 use crate::http::{HttpState, get_modem_json_result};
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
-use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery, SetFriendlyNameRequest, GetFriendlyNameRequest};
+use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery, SetFriendlyNameRequest, GetFriendlyNameRequest, SmsDeviceInfo};
 use crate::http::websocket::{handle_websocket, WebSocketConnection};
 
 macro_rules! http_response_handler {
@@ -108,6 +108,21 @@ macro_rules! http_modem_handler {
     };
 }
 
+macro_rules! modem_extract {
+    ($sms_manager:expr, $request:expr => $variant:ident) => {
+        match $sms_manager.send_command($request).await {
+            Ok(ModemResponse::$variant(data)) => Some(data),
+            _ => None
+        }
+    };
+    ($sms_manager:expr, $request:expr => $variant:ident { $($field:ident),+ }) => {
+        match $sms_manager.send_command($request).await {
+            Ok(ModemResponse::$variant { $($field),+ }) => Some(($($field,)+)),
+            _ => None
+        }
+    };
+}
+
 http_post_handler!(
     db_sms,
     PhoneNumberFetchRequest,
@@ -179,18 +194,28 @@ http_post_handler!(
             bail!("Sending phone number must be in international format!");
         }
 
+        // Quick-fix to make sure the number is valid before attempting.
+        match phone_number.to_string().as_str() {
+            "+" | "" => bail!("Invalid phone number!"),
+            _ => { }
+        }
+
         let outgoing = SMSOutgoingMessage {
             phone_number,
             content: payload.content,
             flash: payload.flash,
-            validity_period: payload.validity_period
+            validity_period: payload.validity_period,
+            timeout: payload.timeout
         };
 
         let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;
         match response {
-            ModemResponse::SendResult(reference_id) => Ok(SendSmsResponse { message_id, reference_id }),
+            ModemResponse::SendResult(reference_id) => {
+                let message_id = message_id.ok_or_else(|| anyhow!("Message sent but no message ID returned"))?;
+                Ok(SendSmsResponse { message_id, reference_id })
+            },
             ModemResponse::Error(message) => Err(anyhow!(message)),
-            _ => Err(anyhow!("Invalid ModemResponse for sending an SMS request!"))
+            _ => Err(anyhow!("Unexpected response type for SMS send request"))
         }
     }
 );
@@ -202,6 +227,21 @@ http_modem_handler!(sms_get_service_provider, ModemRequest::GetServiceProvider);
 http_modem_handler!(sms_get_battery_level, ModemRequest::GetBatteryLevel);
 http_modem_handler!(gnss_get_status, ModemRequest::GetGNSSStatus);
 http_modem_handler!(gnss_get_location, ModemRequest::GetGNSSLocation);
+
+http_get_handler!(
+    sms_get_device_info,
+    SmsDeviceInfo,
+    |state| {
+        Ok(SmsDeviceInfo {
+            phone_number: state.config.phone_number,
+            service_provider: modem_extract!(state.sms_manager, ModemRequest::GetServiceProvider => ServiceProvider),
+            network_operator: modem_extract!(state.sms_manager, ModemRequest::GetNetworkOperator => NetworkOperator { status, format, operator }),
+            network_status: modem_extract!(state.sms_manager, ModemRequest::GetNetworkStatus => NetworkStatus { registration, technology }),
+            battery: modem_extract!(state.sms_manager, ModemRequest::GetBatteryLevel => BatteryLevel { status, charge, voltage }),
+            signal: modem_extract!(state.sms_manager, ModemRequest::GetSignalStrength => SignalStrength { rssi, ber })
+        })
+    }
+);
 
 http_get_handler!(
     sys_version,
