@@ -3,8 +3,8 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v1.0.0
-  workflow_dispatch:  # Allows manual triggering
+      - 'v*'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -56,10 +56,15 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           mkdir -p .cargo
-          cat >> .cargo/config.toml << EOF
+          # Check if config already exists and contains our target
+          if [ -f .cargo/config.toml ] && grep -q "aarch64-unknown-linux-gnu" .cargo/config.toml; then
+            echo "ARM64 target already configured in .cargo/config.toml"
+          else
+            cat >> .cargo/config.toml << EOF
           [target.aarch64-unknown-linux-gnu]
           linker = "aarch64-linux-gnu-gcc"
           EOF
+          fi
 
       - name: Cache cargo registry
         uses: actions/cache@v3
