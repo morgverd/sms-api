@@ -82,6 +82,7 @@ pub struct SendSmsResponse {
 
 #[derive(Serialize)]
 pub struct SmsDeviceInfo {
+    pub version: String,
     pub phone_number: Option<String>,
     pub service_provider: Option<String>,
     pub network_operator: Option<(u8, u8, String)>,

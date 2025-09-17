@@ -2564,7 +2564,7 @@ dependencies = [
 
 [[package]]
 name = "sms-api"
-version = "1.3.3"
+version = "1.3.4"
 dependencies = [
  "aes-gcm",
  "anyhow",

@@ -233,6 +233,7 @@ http_get_handler!(
     SmsDeviceInfo,
     |state| {
         Ok(SmsDeviceInfo {
+            version: crate::VERSION.to_string(),
             phone_number: state.config.phone_number,
             service_provider: modem_extract!(state.sms_manager, ModemRequest::GetServiceProvider => ServiceProvider),
             network_operator: modem_extract!(state.sms_manager, ModemRequest::GetNetworkOperator => NetworkOperator { status, format, operator }),
