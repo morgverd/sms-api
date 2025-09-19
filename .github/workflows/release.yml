@@ -52,20 +52,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Configure cross-compilation (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          mkdir -p .cargo
-          # Check if config already exists and contains our target
-          if [ -f .cargo/config.toml ] && grep -q "aarch64-unknown-linux-gnu" .cargo/config.toml; then
-            echo "ARM64 target already configured in .cargo/config.toml"
-          else
-            cat >> .cargo/config.toml << EOF
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
-          fi
-
       - name: Cache cargo registry
         uses: actions/cache@v3
         with:

@@ -27,7 +27,6 @@ pub struct AppConfig {
     #[serde(default)]
     pub webhooks: Option<Vec<ConfiguredWebhook>>
 }
-
 impl AppConfig {
     pub fn load(config_filepath: Option<PathBuf>) -> Result<Self> {
         let config_path = config_filepath
@@ -161,7 +160,10 @@ pub struct HTTPConfig {
     pub websocket_enabled: bool,
 
     #[serde(default)]
-    pub phone_number: Option<String>
+    pub phone_number: Option<String>,
+
+    #[serde(default)]
+    pub tls: Option<TLSConfig>
 }
 impl Default for HTTPConfig {
     fn default() -> Self {
@@ -171,9 +173,18 @@ impl Default for HTTPConfig {
             send_international_format_only: default_true(),
             require_authentication: default_true(),
             websocket_enabled: default_true(),
-            phone_number: None
+            phone_number: None,
+            tls: None
         }
     }
+}
+#[derive(Debug, Clone, Deserialize)]
+pub struct TLSConfig {
+    #[serde(deserialize_with = "deserialize_existing_file")]
+    pub cert_path: PathBuf,
+
+    #[serde(deserialize_with = "deserialize_existing_file")]
+    pub key_path: PathBuf
 }
 
 fn default_modem_device() -> String { "/dev/ttyS0".to_string() }
@@ -201,4 +212,21 @@ where
     let mut key = [0u8; 32];
     key.copy_from_slice(&decoded);
     Ok(key)
+}
+fn deserialize_existing_file<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let path = PathBuf::deserialize(deserializer)?;
+    if !path.exists() {
+        return Err(serde::de::Error::custom(
+            format!("File does not exist: {}", path.display())
+        ));
+    }
+    if !path.is_file() {
+        return Err(serde::de::Error::custom(
+            format!("Path is not a file: {}", path.display())
+        ));
+    }
+    Ok(path)
 }

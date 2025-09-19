@@ -1,11 +1,15 @@
 [package]
 name = "sms-api"
-version = "1.3.5"
+version = "1.4.2"
 edition = "2021"
 
 [features]
-default = []
+default = ["rust-tls"]
 sentry = ["dep:sentry", "dep:sentry-tracing", "dep:sentry-anyhow", "dep:sentry-panic"]
+
+# HTTP TLS options for crates that use HTTP.
+rust-tls = ["dep:rustls", "reqwest/rustls-tls", "sentry/rustls", "axum-server/tls-rustls"]
+default-tls = ["reqwest/default-tls", "sentry/native-tls", "axum-server/tls-openssl"]
 
 [dependencies]
 pdu-rs = { git = "https://github.com/morgverd/pdu-rs", branch = "main" }
@@ -15,12 +19,13 @@ tower-http = { version = "0.6.6", features = ["cors", "set-header"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite"] }
 clap = { version = "4.5.39", features = ["derive"] }
 toml = { version = "0.9.5", default-features = false, features = ["serde", "parse"] }
-reqwest = { version = "0.12.19", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12.19", default-features = false, features = ["json"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 anyhow = "1.0.98"
 tokio-serial = "5.4.5"
 axum = { version = "0.8.4", features = ["ws"] }
+axum-server = "0.7.2"
 tower = "0.5.2"
 hex = "0.4.3"
 rand = "0.9.1"
@@ -34,8 +39,11 @@ uuid = { version = "1.18.0", features = ["v4"] }
 serde_json = "1.0.142"
 rppal = "0.22.1"
 
+# HTTP TLS.
+rustls = { version = "0.23", features = ["aws-lc-rs"], optional = true }
+
 # Optional Sentry feature.
-sentry = { version = "0.42.0", default-features = false, features = ["backtrace", "contexts", "debug-images", "panic", "reqwest", "rustls", "release-health", "tower-axum-matched-path"], optional = true }
+sentry = { version = "0.42.0", default-features = false, features = ["backtrace", "contexts", "debug-images", "panic", "reqwest", "release-health", "tower-axum-matched-path"], optional = true }
 sentry-tracing = { version = "0.42.0", optional = true }
 sentry-anyhow = { version = "0.42.0", optional = true }
 sentry-panic = { version = "0.42.0", optional = true }

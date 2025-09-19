@@ -1,9 +1,11 @@
 use std::time::Duration;
 use anyhow::{bail, Result};
+use axum::ServiceExt;
 use tracing::log::{debug, error, info, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
+
 use crate::config::{AppConfig, HTTPConfig};
 use crate::events::{Event, EventBroadcaster};
 use crate::http::create_app;
@@ -170,20 +172,41 @@ impl AppHandles {
             return Ok(None);
         }
 
+        let tls_config = config.tls.clone();
         let address = config.address;
+
         let app = create_app(config, websocket, sms_manager, tracing_reload, sentry_enabled)?;
-
         let handle = tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind(address)
-                .await
-                .expect("Failed to bind to address");
+            let result = match tls_config {
+                Some(tls_config) => {
+                    info!("Starting HTTPS (secure) server on {}.", address);
 
-            info!("HTTP server listening on {}.", address);
+                    #[cfg(feature = "rust-tls")]
+                    {
+                        let _  = rustls::crypto::CryptoProvider::install_default(
+                            rustls::crypto::aws_lc_rs::default_provider()
+                        );
+                        let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+                            &tls_config.cert_path, &tls_config.key_path
+                        ).await.expect("Failed to load rustls TLS certificates!");
+                        axum_server::bind_rustls(address, tls).serve(app.into_make_service()).await
+                    }
+                    #[cfg(feature = "default-tls")]
+                    {
+                        let tls = axum_server::tls_openssl::OpenSSLConfig::from_pem_file(
+                            &tls_config.cert_path, &tls_config.key_path
+                        ).expect("Failed to load openssl TLS certificates!");
+                        axum_server::bind_openssl(address, tls).serve(app.into_make_service()).await
+                    }
+                },
+                None => {
+                    info!("Starting HTTP (insecure) server on {}.", address);
+                    axum_server::bind(address).serve(app.into_make_service()).await
+                }
+            };
 
-            if let Err(e) = axum::serve(listener, app).await {
-                error!("HTTP server error: {:?}", e);
-            } else {
-                debug!("HTTP server shut down gracefully");
+            if let Err(e) = result {
+                error!("Server error: {:?}", e);
             }
         });
 
