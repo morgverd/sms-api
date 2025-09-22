@@ -21,6 +21,7 @@
 A HTTP webhook server to accept `incoming` events and then send a ChatGPT generated reply with basic message history. This is probably a crime against humanity,
 and it shouldn't actually be used, but it's a good example of using webhooks in a workflow.
 
+> [!NOTE]
 > Which, to my knowledge, is the first ChatGPT SMS implementation running directly through a modem!
 
 ### [GNSS Viewer](./examples/gnss-viewer)
@@ -40,7 +41,8 @@ The only truly required options here are the `database` fields.
 
 A full example with all annotated fields can be found [here](config.example.toml).
 
-> To use the config file, simply specify `./sms-api -c config.toml`. See `./sms-api -h` for more information.
+> [!TIP]
+> See `./sms-server -h` for more information.
 
 ```toml
 # Specify the SQLite database path and encryption key used when storing/accessing message content.
@@ -156,6 +158,7 @@ is re-established. The data is the ModemStatus.
 | `ShuttingDown` | The modem has sent a `SHUTTING DOWN` message, used in graceful shutdowns. |
 | `Offline`      | The modem connection has closed or a timeout was detected.                |
 
+> [!IMPORTANT]
 > This status reflects the Modem Hat hardware connection, not the cellular carrier network status.
 
 ```json
