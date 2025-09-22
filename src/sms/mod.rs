@@ -7,7 +7,7 @@ use std::sync::Arc;
 use anyhow::{bail, Result};
 use tracing::log::{debug, warn};
 use tokio::sync::Mutex;
-use pdu_rs::{pdu, gsm_encoding};
+use sms_pdu::{pdu, gsm_encoding};
 use crate::config::DatabaseConfig;
 use crate::events::{Event, EventBroadcaster};
 use crate::modem::sender::ModemSender;

@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::Response;
-use pdu_rs::pdu::{PduAddress, TypeOfNumber};
+use sms_pdu::pdu::{PduAddress, TypeOfNumber};
 use tracing_subscriber::EnvFilter;
 use crate::http::{HttpState, get_modem_json_result};
 use crate::modem::types::{ModemRequest, ModemResponse};

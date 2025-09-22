@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use tracing::log::{debug, warn};
-use pdu_rs::pdu::{DeliverPdu, StatusReportPdu};
+use sms_pdu::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::sync::mpsc;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 use crate::modem::commands::CommandState;

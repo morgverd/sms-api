@@ -1,6 +1,6 @@
 [package]
 name = "sms-api"
-version = "1.4.2"
+version = "1.4.3"
 edition = "2021"
 
 [features]
@@ -12,7 +12,7 @@ rust-tls = ["dep:rustls", "reqwest/rustls-tls", "sentry/rustls", "axum-server/tl
 default-tls = ["reqwest/default-tls", "sentry/native-tls", "axum-server/tls-openssl"]
 
 [dependencies]
-sms-pdu = "1.0.0"
+sms-pdu = "1.1.0"
 tokio = { version = "1.45.1", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
 tower-http = { version = "0.6.6", features = ["cors", "set-header"] }
