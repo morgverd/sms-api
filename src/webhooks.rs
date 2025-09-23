@@ -26,23 +26,23 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
         return Ok(builder);
     }
 
-    #[cfg(not(any(feature = "rust-tls", feature = "default-tls")))]
+    #[cfg(not(any(feature = "tls-rustls", feature = "native-tls")))]
     {
         let _ = tls_config; // Suppress unused variable warning
         return Err(anyhow!(
-            "TLS configuration provided but no TLS features enabled. Enable either 'rust-tls' or 'default-tls' feature"
+            "TLS configuration provided but no TLS features enabled. Enable either 'tls-rustls' or 'native-tls' feature"
         ));
     }
 
-    #[cfg(any(feature = "rust-tls", feature = "default-tls"))]
+    #[cfg(any(feature = "tls-rustls", feature = "native-tls"))]
     {
         let mut builder = builder;
 
         // Configure TLS backend
-        #[cfg(feature = "rust-tls")]
+        #[cfg(feature = "tls-rustls")]
         { builder = builder.use_rustls_tls(); }
 
-        #[cfg(feature = "default-tls")]
+        #[cfg(feature = "native-tls")]
         { builder = builder.use_native_tls(); }
 
         // Load and add certificate
@@ -55,7 +55,7 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
     }
 }
 
-#[cfg(any(feature = "rust-tls", feature = "default-tls"))]
+#[cfg(any(feature = "tls-rustls", feature = "native-tls"))]
 fn load_certificate(cert_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
     let cert_data = std::fs::read(cert_path)?;
 

@@ -180,7 +180,7 @@ impl AppHandles {
                 Some(tls_config) => {
                     info!("Starting HTTPS (secure) server on {}.", address);
 
-                    #[cfg(feature = "rust-tls")]
+                    #[cfg(feature = "tls-rustls")]
                     {
                         let _  = rustls::crypto::CryptoProvider::install_default(
                             rustls::crypto::aws_lc_rs::default_provider()
@@ -190,7 +190,7 @@ impl AppHandles {
                         ).await.expect("Failed to load rustls TLS certificates!");
                         axum_server::bind_rustls(address, tls).serve(app.into_make_service()).await
                     }
-                    #[cfg(feature = "default-tls")]
+                    #[cfg(feature = "native-tls")]
                     {
                         let tls = axum_server::tls_openssl::OpenSSLConfig::from_pem_file(
                             &tls_config.cert_path, &tls_config.key_path

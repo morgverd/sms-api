@@ -1,19 +1,21 @@
 pub mod types;
 mod database;
 mod encryption;
+mod multipart;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{bail, Result};
 use tracing::log::{debug, warn};
 use tokio::sync::Mutex;
-use sms_pdu::{pdu, gsm_encoding};
 use crate::config::DatabaseConfig;
 use crate::events::{Event, EventBroadcaster};
 use crate::modem::sender::ModemSender;
 use crate::modem::types::{ModemRequest, ModemResponse};
 use crate::sms::database::SMSDatabase;
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage, SMSMessage, SMSMultipartMessages, SMSOutgoingMessage, SMSStatus};
+use crate::sms::multipart::SMSMultipartMessages;
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
+use crate::types::{SMSMessage, SMSOutgoingMessage, SMSStatus};
 
 #[derive(Clone)]
 pub struct SMSManager {
@@ -31,63 +33,15 @@ impl SMSManager {
         Ok(Self { modem, database, broadcaster })
     }
 
-    fn create_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
-        let requests = gsm_encoding::GsmMessageData::encode_message(&*message.content)
-            .into_iter()
-            .map(|data| {
-                let pdu = pdu::SubmitPdu {
-                    sca: None,
-                    first_octet: pdu::PduFirstOctet {
-                        mti: pdu::MessageType::SmsSubmit,
-                        rd: false,
-                        vpf: pdu::VpFieldValidity::Relative,
-                        srr: true,
-                        udhi: data.udh,
-                        rp: false
-                    },
-                    message_id: 0,
-                    destination: message.phone_number.clone(),
-                    dcs: pdu::DataCodingScheme::Standard {
-                        compressed: false,
-                        class: message.flash.then(|| pdu::MessageClass::Silent),
-                        encoding: data.encoding
-                    },
-                    validity_period: if message.flash { 0 } else { message.get_validity_period() },
-                    user_data: data.bytes,
-                    user_data_len: data.user_data_len,
-                };
-
-                let (bytes, size) = pdu.as_bytes();
-                ModemRequest::SendSMS {
-                    pdu: hex::encode(bytes),
-                    len: size
-                }
-            })
-            .collect::<Vec<ModemRequest>>();
-
-        Ok(requests)
-    }
-
     /// Returns the database row ID and final modem response.
     pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(Option<i64>, ModemResponse)> {
+        let last_response = match self.modem.send_sms(&message).await? {
 
-        // Send each send request for message, returning the last message.
-        let mut last_response_opt = None;
-        for request in Self::create_requests(&message)? {
-            let response = self.modem.send_command(request, message.timeout).await?;
-
-            // If one of the message parts return an error response, then return immediately
-            // as there's no use in continuing to send message parts for a broken concatenation.
-            if matches!(response, ModemResponse::Error(_)) {
-                return Ok((None, response));
-            }
-            last_response_opt.replace(response);
-        }
-
-        // Ensure there was at least one response back, otherwise nothing was actually sent somehow?
-        let last_response = match last_response_opt {
-            Some(response) => response,
-            None => bail!("Missing any valid SendSMS response!")
+            // If all requests were not sent, then don't store any in the database as it must
+            // be a failed multipart message. Instead, return the error response.
+            (false, Some(response)) => return Ok((None, response)),
+            (true, Some(response)) => response,
+            _ => bail!("Missing any valid SendSMS response!")
         };
         debug!("SMSManager last_response: {:?}", last_response);
 
@@ -129,7 +83,7 @@ impl SMSManager {
     }
     
     pub async fn send_command(&self, request: ModemRequest) -> Result<ModemResponse> {
-        self.modem.send_command(request, None).await
+        self.modem.send_request(request, None).await
     }
 
     pub fn borrow_database(&self) -> &Arc<SMSDatabase> {

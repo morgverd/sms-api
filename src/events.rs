@@ -5,7 +5,8 @@ use tracing::log::debug;
 use crate::config::ConfiguredWebhook;
 use crate::http::websocket::WebSocketManager;
 use crate::modem::types::{GNSSLocation, ModemStatus};
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSMessage};
+use crate::sms::types::SMSIncomingDeliveryReport;
+use crate::types::SMSMessage;
 use crate::webhooks::WebhookSender;
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone, Copy, Deserialize)]

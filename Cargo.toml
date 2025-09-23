@@ -1,15 +1,15 @@
 [package]
-name = "sms-api"
-version = "1.4.4"
+name = "sms-server"
+version = "2.0.0"
 edition = "2021"
 
 [features]
-default = ["rust-tls"]
+default = ["tls-rustls"]
 sentry = ["dep:sentry", "dep:sentry-tracing", "dep:sentry-anyhow", "dep:sentry-panic"]
 
 # HTTP TLS options for crates that use HTTP.
-rust-tls = ["dep:rustls", "reqwest/rustls-tls", "sentry/rustls", "axum-server/tls-rustls"]
-default-tls = ["reqwest/default-tls", "sentry/native-tls", "axum-server/tls-openssl"]
+tls-rustls = ["dep:rustls", "reqwest/rustls-tls", "sentry/rustls", "axum-server/tls-rustls"]
+native-tls = ["reqwest/native-tls", "sentry/native-tls", "axum-server/tls-openssl"]
 
 [dependencies]
 sms-pdu = "1.1.0"

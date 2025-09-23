@@ -5,6 +5,7 @@ mod config;
 pub mod webhooks;
 pub mod app;
 pub mod events;
+mod types;
 
 use std::path::PathBuf;
 use anyhow::Result;

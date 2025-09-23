@@ -5,9 +5,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use sqlx::{Row, SqlitePool};
 use crate::config::DatabaseConfig;
 use crate::sms::encryption::SMSEncryption;
-use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSStatus};
+use crate::types::{SMSDeliveryReport, SMSMessage, SMSStatus};
 
-const SCHEMA_SQL: &str = include_str!("../schema.sql");
+const SCHEMA_SQL: &str = include_str!("schemas/sqlite.sql");
 
 fn build_pagination_query(
     base_query: &str,

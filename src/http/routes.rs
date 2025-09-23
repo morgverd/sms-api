@@ -7,9 +7,9 @@ use sms_pdu::pdu::{PduAddress, TypeOfNumber};
 use tracing_subscriber::EnvFilter;
 use crate::http::{HttpState, get_modem_json_result};
 use crate::modem::types::{ModemRequest, ModemResponse};
-use crate::sms::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery, SetFriendlyNameRequest, GetFriendlyNameRequest, SmsDeviceInfo};
 use crate::http::websocket::{handle_websocket, WebSocketConnection};
+use crate::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 
 macro_rules! http_response_handler {
     ($result:expr) => {
