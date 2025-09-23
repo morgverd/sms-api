@@ -107,6 +107,10 @@ pub struct ConfiguredWebhook {
 
     #[serde(default)]
     pub headers: Option<HashMap<String, String>>,
+
+    #[serde(deserialize_with = "deserialize_optional_existing_file")]
+    #[serde(default)]
+    pub certificate: Option<PathBuf>
 }
 impl ConfiguredWebhook {
     pub fn get_header_map(&self) -> Result<Option<HeaderMap>> {
@@ -213,6 +217,7 @@ where
     key.copy_from_slice(&decoded);
     Ok(key)
 }
+
 fn deserialize_existing_file<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -229,4 +234,18 @@ where
         ));
     }
     Ok(path)
+}
+
+fn deserialize_optional_existing_file<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let path_opt = Option::<String>::deserialize(deserializer)?;
+    match path_opt {
+        Some(path_str) => {
+            let path_deserializer = serde::de::value::StringDeserializer::new(path_str);
+            Ok(Some(deserialize_existing_file(path_deserializer)?))
+        }
+        None => Ok(None)
+    }
 }

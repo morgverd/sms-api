@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use futures::{stream, StreamExt};
@@ -13,6 +14,72 @@ use crate::events::{Event, EventType};
 
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBuilder> {
+    let builder = Client::builder();
+    let certificate_paths: Vec<PathBuf> = webhooks.into_iter()
+        .filter_map(|w| w.certificate.clone())
+        .collect();
+    
+    // If there are no certificates, return base builder.
+    if certificate_paths.is_empty() {
+        return Ok(builder);
+    }
+
+    #[cfg(not(any(feature = "rust-tls", feature = "default-tls")))]
+    {
+        let _ = tls_config; // Suppress unused variable warning
+        return Err(anyhow!(
+            "TLS configuration provided but no TLS features enabled. Enable either 'rust-tls' or 'default-tls' feature"
+        ));
+    }
+
+    #[cfg(any(feature = "rust-tls", feature = "default-tls"))]
+    {
+        let mut builder = builder;
+
+        // Configure TLS backend
+        #[cfg(feature = "rust-tls")]
+        { builder = builder.use_rustls_tls(); }
+
+        #[cfg(feature = "default-tls")]
+        { builder = builder.use_native_tls(); }
+
+        // Load and add certificate
+        for certificate_path in certificate_paths {
+            let certificate = load_certificate(&certificate_path)?;
+            builder = builder.add_root_certificate(certificate);
+        }
+
+        return Ok(builder);
+    }
+}
+
+#[cfg(any(feature = "rust-tls", feature = "default-tls"))]
+fn load_certificate(cert_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
+    let cert_data = std::fs::read(cert_path)?;
+
+    // Try to parse based on file extension first
+    if let Some(ext) = cert_path.extension().and_then(|s| s.to_str()) {
+        match ext {
+            "pem" => return Ok(reqwest::tls::Certificate::from_pem(&cert_data)?),
+            "der" => return Ok(reqwest::tls::Certificate::from_der(&cert_data)?),
+            "crt" => {
+                if cert_data.starts_with(b"-----BEGIN") {
+                    return Ok(reqwest::tls::Certificate::from_pem(&cert_data)?);
+                } else {
+                    return Ok(reqwest::tls::Certificate::from_der(&cert_data)?);
+                }
+            },
+            _ => {}
+        }
+    }
+
+    // Auto-detect format: try PEM first, then DER
+    reqwest::tls::Certificate::from_pem(&cert_data)
+        .or_else(|_| reqwest::tls::Certificate::from_der(&cert_data))
+        .map_err(Into::into)
+}
 
 #[derive(Clone)]
 pub struct WebhookSender {
@@ -59,13 +126,11 @@ impl WebhookWorker {
             }
         }
 
-        let client = Client::builder()
+        let client = client_builder(&webhooks)
+            .expect("Failed to create Webhooks Reqwest client builder!")
             .timeout(WEBHOOK_TIMEOUT)
             .build()
-            .unwrap_or_else(|e| {
-                error!("Could not build timeout HTTP client with error: {}", e);
-                Client::new()
-            });
+            .expect("Failed to build Webhooks Reqwest client!");
 
         Self {
 
