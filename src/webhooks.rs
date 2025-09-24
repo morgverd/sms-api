@@ -18,7 +18,7 @@ const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBuilder> {
     let builder = Client::builder();
     let certificate_paths: Vec<PathBuf> = webhooks.into_iter()
-        .filter_map(|w| w.certificate.clone())
+        .filter_map(|w| w.certificate_path.clone())
         .collect();
     
     // If there are no certificates, return base builder.
@@ -56,11 +56,11 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
 }
 
 #[cfg(any(feature = "tls-rustls", feature = "native-tls"))]
-fn load_certificate(cert_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
-    let cert_data = std::fs::read(cert_path)?;
+fn load_certificate(certificate_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
+    let cert_data = std::fs::read(certificate_path)?;
 
     // Try to parse based on file extension first
-    if let Some(ext) = cert_path.extension().and_then(|s| s.to_str()) {
+    if let Some(ext) = certificate_path.extension().and_then(|s| s.to_str()) {
         match ext {
             "pem" => return Ok(reqwest::tls::Certificate::from_pem(&cert_data)?),
             "der" => return Ok(reqwest::tls::Certificate::from_der(&cert_data)?),

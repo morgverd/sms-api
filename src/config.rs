@@ -48,7 +48,7 @@ pub struct ModemConfig {
     pub device: String,
 
     #[serde(default = "default_modem_baud")]
-    pub baud: u32,
+    pub baud_rate: u32,
 
     #[serde(default = "default_false")]
     pub gnss_enabled: bool,
@@ -76,7 +76,7 @@ impl Default for ModemConfig {
     fn default() -> Self {
         Self {
             device: default_modem_device(),
-            baud: default_modem_baud(),
+            baud_rate: default_modem_baud(),
             gnss_enabled: default_false(),
             gnss_report_interval: default_gnss_report_interval(),
             gpio_power_pin: default_false(),
@@ -110,7 +110,7 @@ pub struct ConfiguredWebhook {
 
     #[serde(deserialize_with = "deserialize_optional_existing_file")]
     #[serde(default)]
-    pub certificate: Option<PathBuf>
+    pub certificate_path: Option<PathBuf>
 }
 impl ConfiguredWebhook {
     pub fn get_header_map(&self) -> Result<Option<HeaderMap>> {
@@ -185,7 +185,7 @@ impl Default for HTTPConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TLSConfig {
     #[serde(deserialize_with = "deserialize_existing_file")]
-    pub cert_path: PathBuf,
+    pub certificate_path: PathBuf,
 
     #[serde(deserialize_with = "deserialize_existing_file")]
     pub key_path: PathBuf

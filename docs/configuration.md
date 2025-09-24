@@ -27,7 +27,7 @@ The database section configures the connection to your database and encryption s
 
 ```toml
 [database]
-database_url = "postgresql://user:password@localhost:5432/sms_gateway"
+database_url = "/home/pi/example.db"
 encryption_key = "SGVsbG8gV29ybGQhIFRoaXMgaXMgYSAzMiBieXRlIGtleQ=="
 ```
 
@@ -43,7 +43,7 @@ The modem section configures the cellular modem connection and behavior.
 | Field                     | Type    | Default        | Description                                    |
 |---------------------------|---------|----------------|------------------------------------------------|
 | `device`                  | String  | `"/dev/ttyS0"` | Serial device path for the modem               |
-| `baud`                    | Number  | `115200`       | Serial baud rate                               |
+| `baud_rate`               | Number  | `115200`       | Serial baud rate                               |
 | `gnss_enabled`            | Boolean | `false`        | Enable GPS/GNSS functionality                  |
 | `gnss_report_interval`    | Number  | `0`            | GNSS report interval in seconds (0 = disabled) |
 | `gpio_power_pin`          | Boolean | `false`        | Use GPIO power pin control                     |
@@ -57,7 +57,7 @@ The modem section configures the cellular modem connection and behavior.
 ```toml
 [modem]
 device = "/dev/ttyUSB0"
-baud = 115200
+baud_rate = 115200
 gnss_enabled = true
 gnss_report_interval = 30
 gpio_power_pin = true
@@ -112,10 +112,10 @@ TLS configuration is a subsection of the HTTP configuration that enables HTTPS.
 
 ### Fields
 
-| Field       | Type   | Description                  |
-|-------------|--------|------------------------------|
-| `cert_path` | String | Path to TLS certificate file |
-| `key_path`  | String | Path to TLS private key file |
+| Field              | Type   | Description                  |
+|--------------------|--------|------------------------------|
+| `certificate_path` | String | Path to TLS certificate file |
+| `key_path`         | String | Path to TLS private key file |
 
 ### Example
 
@@ -125,7 +125,7 @@ enabled = true
 address = "0.0.0.0:8443"
 
 [http.tls]
-cert_path = "/path/to/certificate.crt"
+certificate_path = "/path/to/certificate.crt"
 key_path = "/path/to/private.key"
 ```
 
@@ -148,11 +148,6 @@ Webhooks allow the application to send HTTP requests when specific events occur.
 | `events`          | Array  | `["incoming"]` | List of events to trigger webhook    |
 | `headers`         | Object | `null`         | Custom HTTP headers                  |
 | `certificate`     | String | `null`         | Path to custom CA certificate        |
-
-### Available Events
-
-- `IncomingMessage` - New SMS message received
-- (Additional events depend on your `EventType` enum)
 
 ### Example
 
@@ -184,13 +179,13 @@ Sentry integration provides error tracking and performance monitoring. This sect
 
 ### Fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `dsn` | String | - | Sentry Data Source Name |
-| `environment` | String | `null` | Environment name (e.g., "production") |
-| `server_name` | String | `null` | Server name for event tagging |
-| `debug` | Boolean | `false` | Enable Sentry debug mode |
-| `send_default_pii` | Boolean | `true` | Send personally identifiable information |
+| Field              | Type    | Default  | Description                              |
+|--------------------|---------|----------|------------------------------------------|
+| `dsn`              | String  | -        | Sentry Data Source Name                  |
+| `environment`      | String  | `null`   | Environment name (e.g., "production")    |
+| `server_name`      | String  | `null`   | Server name for event tagging            |
+| `debug`            | Boolean | `false`  | Enable Sentry debug mode                 |
+| `send_default_pii` | Boolean | `true`   | Send personally identifiable information |
 
 ### Example
 
@@ -216,13 +211,13 @@ Here's a complete configuration file example:
 ```toml
 # Database configuration
 [database]
-database_url = "postgresql://sms_user:secure_password@localhost:5432/sms_gateway"
+database_url = "/home/pi/example.db"
 encryption_key = "SGVsbG8gV29ybGQhIFRoaXMgaXMgYSAzMiBieXRlIGtleQ=="
 
 # Modem configuration
 [modem]
 device = "/dev/ttyUSB0"
-baud = 115200
+baud_rate = 115200
 gnss_enabled = true
 gnss_report_interval = 60
 gpio_power_pin = true
@@ -242,7 +237,7 @@ phone_number = "+1234567890"
 
 # TLS configuration (HTTPS)
 [http.tls]
-cert_path = "/etc/ssl/certs/sms-gateway.crt"
+certificate_path = "/etc/ssl/certs/sms-gateway.crt"
 key_path = "/etc/ssl/private/sms-gateway.key"
 
 # Webhook configurations
