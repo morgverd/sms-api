@@ -38,7 +38,7 @@ impl ModemManager {
         let (command_tx, command_rx) = mpsc::channel(self.config.cmd_channel_buffer_size);
         self.command_tx = Some(command_tx);
 
-        let port = tokio_serial::new(&self.config.device, self.config.baud)
+        let port = tokio_serial::new(&self.config.device, self.config.baud_rate)
             .open_native_async()
             .map_err(|e| anyhow!("Failed to open serial port {}: {}", self.config.device, e))?;
 
