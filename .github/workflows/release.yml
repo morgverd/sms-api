@@ -18,23 +18,23 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: sms-api
-            asset_name: sms-api-linux-x64
+            artifact_name: sms-server
+            asset_name: sms-server-linux-x64
             features: ""
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: sms-api
-            asset_name: sms-api-linux-x64-sentry
+            artifact_name: sms-server
+            asset_name: sms-server-linux-x64-sentry
             features: "--features sentry"
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: sms-api
-            asset_name: sms-api-linux-aarch64
+            artifact_name: sms-server
+            asset_name: sms-server-linux-aarch64
             features: ""
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact_name: sms-api
-            asset_name: sms-api-linux-aarch64-sentry
+            artifact_name: sms-server
+            asset_name: sms-server-linux-aarch64-sentry
             features: "--features sentry"
 
     steps:
@@ -126,8 +126,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/sms-api-linux-x64/sms-api
-          asset_name: sms-api-linux-x64
+          asset_path: artifacts/sms-server-linux-x64/sms-server
+          asset_name: sms-server-linux-x64
           asset_content_type: application/octet-stream
 
       - name: Upload Linux x64 with Sentry binary
@@ -136,8 +136,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/sms-api-linux-x64-sentry/sms-api
-          asset_name: sms-api-linux-x64-sentry
+          asset_path: artifacts/sms-server-linux-x64-sentry/sms-server
+          asset_name: sms-server-linux-x64-sentry
           asset_content_type: application/octet-stream
 
       - name: Upload Linux ARM64 binary
@@ -146,8 +146,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/sms-api-linux-aarch64/sms-api
-          asset_name: sms-api-linux-aarch64
+          asset_path: artifacts/sms-server-linux-aarch64/sms-server
+          asset_name: sms-server-linux-aarch64
           asset_content_type: application/octet-stream
 
       - name: Upload Linux ARM64 with Sentry binary
@@ -156,6 +156,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/sms-api-linux-aarch64-sentry/sms-api
-          asset_name: sms-api-linux-aarch64-sentry
+          asset_path: artifacts/sms-server-linux-aarch64-sentry/sms-server
+          asset_name: sms-server-linux-aarch64-sentry
           asset_content_type: application/octet-stream

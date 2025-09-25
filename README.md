@@ -5,7 +5,7 @@ A powerful, self-hosted SMS gateway that enables you to send and receive text me
 ## Features
 
 ### 🔐 **Security First**
-- **End-to-end encryption** for all SMS message content stored in the database
+- Encryption by default for all message storage within database
 - Optional token-based authentication for HTTP API and WebSocket connections
 - TLS/HTTPS support for secure communications
 

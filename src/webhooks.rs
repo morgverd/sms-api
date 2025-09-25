@@ -17,8 +17,8 @@ const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBuilder> {
     let builder = Client::builder();
-    let certificate_paths: Vec<PathBuf> = webhooks.into_iter()
-        .filter_map(|w| w.certificate_path.clone())
+    let certificate_paths: Vec<&PathBuf> = webhooks.into_iter()
+        .filter_map(|w| w.certificate_path.as_ref())
         .collect();
     
     // If there are no certificates, return base builder.
@@ -26,15 +26,15 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
         return Ok(builder);
     }
 
-    #[cfg(not(any(feature = "tls-rustls", feature = "native-tls")))]
+    #[cfg(not(any(feature = "tls-rustls", feature = "tls-native")))]
     {
         let _ = tls_config; // Suppress unused variable warning
         return Err(anyhow!(
-            "TLS configuration provided but no TLS features enabled. Enable either 'tls-rustls' or 'native-tls' feature"
+            "TLS configuration provided but no TLS features enabled. Enable either 'tls-rustls' or 'tls-native' feature"
         ));
     }
 
-    #[cfg(any(feature = "tls-rustls", feature = "native-tls"))]
+    #[cfg(any(feature = "tls-rustls", feature = "tls-native"))]
     {
         let mut builder = builder;
 
@@ -42,12 +42,12 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
         #[cfg(feature = "tls-rustls")]
         { builder = builder.use_rustls_tls(); }
 
-        #[cfg(feature = "native-tls")]
+        #[cfg(feature = "tls-native")]
         { builder = builder.use_native_tls(); }
 
         // Load and add certificate
         for certificate_path in certificate_paths {
-            let certificate = load_certificate(&certificate_path)?;
+            let certificate = load_certificate(certificate_path)?;
             builder = builder.add_root_certificate(certificate);
         }
 
@@ -55,7 +55,7 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
     }
 }
 
-#[cfg(any(feature = "tls-rustls", feature = "native-tls"))]
+#[cfg(any(feature = "tls-rustls", feature = "tls-native"))]
 fn load_certificate(certificate_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
     let cert_data = std::fs::read(certificate_path)?;
 

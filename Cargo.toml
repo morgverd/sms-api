@@ -2,21 +2,42 @@
 name = "sms-server"
 version = "2.0.1"
 edition = "2021"
+license = "AGPL-3.0-only"
+build = "build.rs"
+description = "SMS server for GSM modem hardware with HTTP/WebSocket APIs, encrypted message storage, delivery tracking, and GNSS location support. Designed for Raspberry Pi + GSM HAT setup."
+keywords = ["sms", "gsm", "sim", "sms-server"]
+categories = ["hardware-support", "web-programming::websocket", "web-programming::http-server", "database"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[[bin]]
+name = "sms-server"
+path = "src/main.rs"
 
 [features]
-default = ["tls-rustls"]
+default = ["tls-rustls", "db-sqlite"]
 sentry = ["dep:sentry", "dep:sentry-tracing", "dep:sentry-anyhow", "dep:sentry-panic"]
 
 # HTTP TLS options for crates that use HTTP.
 tls-rustls = ["dep:rustls", "reqwest/rustls-tls", "sentry/rustls", "axum-server/tls-rustls"]
-native-tls = ["reqwest/native-tls", "sentry/native-tls", "axum-server/tls-openssl"]
+tls-native = ["reqwest/native-tls", "sentry/native-tls", "axum-server/tls-openssl"]
+
+# SQLite doesn't need TLS, so it just uses basic tokio runtime.
+db-sqlite = ["sqlx/sqlite", "sqlx/runtime-tokio"]
+
+# PostgreSQL needs TLS-aware runtime.
+db-postgres-rustls = ["sqlx/postgres", "sqlx/runtime-tokio-rustls", "tls-rustls"]
+db-postgres-native = ["sqlx/postgres", "sqlx/runtime-tokio-native-tls", "tls-native"]
 
 [dependencies]
 sms-pdu = "1.1.0"
 tokio = { version = "1.45.1", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
 tower-http = { version = "0.6.6", features = ["cors", "set-header"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls"] }
 clap = { version = "4.5.39", features = ["derive"] }
 toml = { version = "0.9.5", default-features = false, features = ["serde", "parse"] }
 reqwest = { version = "0.12.19", default-features = false, features = ["json"] }
@@ -40,7 +61,7 @@ serde_json = "1.0.142"
 rppal = "0.22.1"
 
 # HTTP TLS.
-rustls = { version = "0.23", features = ["aws-lc-rs"], optional = true }
+rustls = { version = "0.23", optional = true, features = ["aws-lc-rs"] }
 
 # Optional Sentry feature.
 sentry = { version = "0.42.0", default-features = false, features = ["backtrace", "contexts", "debug-images", "panic", "reqwest", "release-health", "tower-axum-matched-path"], optional = true }

@@ -34,12 +34,12 @@ impl SMSIncomingMessage {
         }))
     }
 }
-impl From<SMSIncomingMessage> for SMSMessage {
-    fn from(incoming: SMSIncomingMessage) -> Self {
+impl From<&SMSIncomingMessage> for SMSMessage {
+    fn from(incoming: &SMSIncomingMessage) -> Self {
         SMSMessage {
             message_id: None,
-            phone_number: incoming.phone_number,
-            message_content: incoming.content,
+            phone_number: incoming.phone_number.clone(),
+            message_content: incoming.content.clone(),
             message_reference: None,
             is_outgoing: false,
             status: SMSStatus::Received,

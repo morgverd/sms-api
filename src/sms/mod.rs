@@ -45,7 +45,7 @@ impl SMSManager {
         };
         debug!("SMSManager last_response: {:?}", last_response);
 
-        let mut new_message = SMSMessage::from(message);
+        let mut new_message = SMSMessage::from(&message);
         let send_failure = match &last_response {
             ModemResponse::SendResult(reference_id) => {
                 new_message.message_reference.replace(*reference_id);
@@ -132,10 +132,10 @@ impl SMSReceiver {
         };
 
         let is_final = report.status.is_success() || report.status.is_permanent_error();
-        let status = u8::from(&SMSStatus::from(report.status));
+        let status = u8::from(&SMSStatus::from(&report.status));
 
         // Send delivery report event.
-        let sms_status = SMSStatus::from(report.status);
+        let sms_status = SMSStatus::from(&report.status);
         if let Some(broadcaster) = &self.manager.broadcaster {
             broadcaster.broadcast(Event::DeliveryReport {
                 message_id,
@@ -169,7 +169,7 @@ impl SMSReceiver {
         let header = match incoming_message.decode_multipart_data() {
             Some(Ok(header)) => header,
             Some(Err(e)) => return Some(Err(e)),
-            None => return Some(Ok(SMSMessage::from(incoming_message)))
+            None => return Some(Ok(SMSMessage::from(&incoming_message)))
         };
 
         // Get multipart messages set for message reference.

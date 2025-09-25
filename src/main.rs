@@ -24,8 +24,8 @@ pub const VERSION: &str = if cfg!(feature = "sentry") {
 };
 
 #[derive(Parser)]
-#[command(name = "sms-api")]
-#[command(about = "A HTTP API that accepts and sends SMS messages.")]
+#[command(name = "sms-server")]
+#[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 #[command(version = VERSION)]
 struct CliArguments {
 

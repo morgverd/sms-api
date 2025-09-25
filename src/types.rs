@@ -37,12 +37,12 @@ impl SMSOutgoingMessage {
         self.validity_period.unwrap_or(167) // 24hr
     }
 }
-impl From<SMSOutgoingMessage> for SMSMessage {
-    fn from(outgoing: SMSOutgoingMessage) -> Self {
+impl From<&SMSOutgoingMessage> for SMSMessage {
+    fn from(outgoing: &SMSOutgoingMessage) -> Self {
         SMSMessage {
             message_id: None,
             phone_number: outgoing.phone_number.to_string(),
-            message_content: outgoing.content,
+            message_content: outgoing.content.clone(),
             message_reference: None,
             is_outgoing: true,
             status: SMSStatus::Sent,
@@ -71,8 +71,8 @@ impl From<&SMSStatus> for u8 {
         }
     }
 }
-impl From<MessageStatus> for SMSStatus {
-    fn from(status: MessageStatus) -> Self {
+impl From<&MessageStatus> for SMSStatus {
+    fn from(status: &MessageStatus) -> Self {
         if status.is_success() {
             SMSStatus::Received
         } else if status.is_temporary_error() {

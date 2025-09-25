@@ -37,7 +37,7 @@ pub struct SMSDatabase {
 impl SMSDatabase {
     pub async fn connect(config: DatabaseConfig) -> Result<Self> {
         let connection_options = SqliteConnectOptions::new()
-            .filename(config.database_url.clone())
+            .filename(&config.database_url)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)

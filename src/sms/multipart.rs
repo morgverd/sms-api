@@ -37,24 +37,25 @@ impl SMSMultipartMessages {
 
     pub fn add_message(&mut self, message: SMSIncomingMessage, index: u8) -> bool {
         self.last_updated = Instant::now();
-        if self.first_message.is_none() {
-            self.first_message = Some(message.clone());
-        }
 
         // Make multipart index 0-based.
         let idx = (index as usize).saturating_sub(1);
         if idx < self.text_parts.len() && self.text_parts[idx].is_none() {
 
-            // Dirty fix until I have the time to rewrite the PDU parser.
+            // Remove message separator char.
             let content = if message.content.ends_with("@") {
                 message.content.trim_end_matches("@").to_string()
             } else {
-                message.content
+                message.content.to_string()
             };
 
             self.text_len += content.len();
             self.text_parts[idx] = Some(content);
             self.received_count += 1;
+        }
+
+        if self.first_message.is_none() {
+            self.first_message = Some(message);
         }
 
         debug!("Received Multipart SMS Count: {:?} | Max: {:?}", self.received_count, self.total_size);
@@ -74,7 +75,7 @@ impl SMSMultipartMessages {
             }
         }
 
-        let mut message = SMSMessage::from(first_message.clone());
+        let mut message = SMSMessage::from(first_message);
         message.message_content = content;
 
         Ok(message)

@@ -190,7 +190,7 @@ impl AppHandles {
                         ).await.expect("Failed to load rustls TLS certificates!");
                         axum_server::bind_rustls(address, tls).serve(app.into_make_service()).await
                     }
-                    #[cfg(feature = "native-tls")]
+                    #[cfg(feature = "tls-native")]
                     {
                         let tls = axum_server::tls_openssl::OpenSSLConfig::from_pem_file(
                             &tls_config.certificate_path, &tls_config.key_path
