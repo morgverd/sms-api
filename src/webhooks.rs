@@ -8,7 +8,7 @@ use reqwest::Client;
 use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use crate::config::ConfiguredWebhook;
 use crate::events::{Event, EventType};
 
@@ -28,8 +28,7 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
 
     #[cfg(not(any(feature = "tls-rustls", feature = "tls-native")))]
     {
-        let _ = tls_config; // Suppress unused variable warning
-        return Err(anyhow!(
+        return Err(anyhow::anyhow!(
             "TLS configuration provided but no TLS features enabled. Enable either 'tls-rustls' or 'tls-native' feature"
         ));
     }
@@ -209,11 +208,11 @@ impl WebhookWorker {
 
         match webhook.expected_status {
             Some(expected) if status.as_u16() != expected => {
-                bail!("Got {} expected {}!", status.as_u16(), expected);
-            }
+                anyhow::bail!("Got {} expected {}!", status.as_u16(), expected);
+            },
             None if !status.is_success() => {
-                bail!("Unsuccessful status {}", status);
-            }
+                anyhow::bail!("Unsuccessful status {}", status);
+            },
             _ => Ok(())
         }
     }

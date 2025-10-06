@@ -1,11 +1,13 @@
 mod modem;
-mod http;
 mod sms;
 mod config;
-pub mod webhooks;
-pub mod app;
-pub mod events;
+mod webhooks;
+mod app;
+mod events;
 mod types;
+
+#[cfg(feature = "http-server")]
+mod http;
 
 use std::path::PathBuf;
 use anyhow::Result;
@@ -17,11 +19,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use crate::app::AppHandles;
 
-pub const VERSION: &str = if cfg!(feature = "sentry") {
-    concat!(env!("CARGO_PKG_VERSION"), "+sentry")
-} else {
-    env!("CARGO_PKG_VERSION")
-};
+const VERSION: &str = env!("VERSION");
 
 #[derive(Parser)]
 #[command(name = "sms-server")]
@@ -78,7 +76,7 @@ fn init_tracing() -> TracingReloadHandle {
     let registry = registry.with(sentry_tracing::layer());
 
     registry.init();
-    info!("SMS-API Version: {}.", VERSION);
+    info!("build version: {}.", VERSION);
 
     reload_handle
 }
@@ -100,7 +98,7 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?
         .block_on(async move {
-            let handles = AppHandles::create(config, tracing_reload, _sentry_guard).await?;
+            let handles = AppHandles::new(config, tracing_reload, _sentry_guard).await?;
             handles.run().await;
 
             #[cfg(feature = "sentry")]

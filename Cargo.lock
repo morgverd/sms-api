@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "sms-server"
-version = "2.0.1"
+version = "2.1.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3094,7 +3094,6 @@ dependencies = [
  "indexmap",
  "log",
  "memchr",
- "native-tls",
  "once_cell",
  "percent-encoding",
  "rustls",

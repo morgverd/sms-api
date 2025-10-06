@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "http-server"), allow(dead_code))]
+
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 use tracing::log::debug;

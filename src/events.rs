@@ -2,12 +2,14 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use tracing::log::debug;
-use crate::config::ConfiguredWebhook;
-use crate::http::websocket::WebSocketManager;
+use crate::config::AppConfig;
 use crate::modem::types::{GNSSLocation, ModemStatus};
 use crate::sms::types::SMSIncomingDeliveryReport;
 use crate::types::SMSMessage;
 use crate::webhooks::WebhookSender;
+
+#[cfg(feature = "http-server")]
+use crate::http::websocket::WebSocketManager;
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone, Copy, Deserialize)]
 pub enum EventType {
@@ -26,7 +28,10 @@ pub enum EventType {
     #[serde(rename = "gnss_position_report")]
     GNSSPositionReport
 }
+#[cfg_attr(not(feature = "http-server"), allow(dead_code))]
 impl EventType {
+
+    #[inline]
     pub const fn to_bit(self) -> u8 {
         match self {
             EventType::IncomingMessage => 1 << 0,     // 0b00001
@@ -37,10 +42,12 @@ impl EventType {
         }
     }
 
+    #[inline]
     pub const fn all_bits() -> u8 {
         (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) // 0b11111
     }
 
+    #[inline]
     pub fn events_to_mask(events: &[EventType]) -> u8 {
         events.iter().fold(0, |acc, event| acc | event.to_bit())
     }
@@ -48,6 +55,7 @@ impl EventType {
 impl TryFrom<&str> for EventType {
     type Error = anyhow::Error;
 
+    #[inline]
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "incoming" => Ok(EventType::IncomingMessage),
@@ -101,22 +109,32 @@ impl Event {
 #[derive(Clone)]
 pub struct EventBroadcaster {
     pub webhooks: Option<WebhookSender>,
-    pub websocket: Option<WebSocketManager>,
+
+    #[cfg(feature = "http-server")]
+    pub websocket: Option<WebSocketManager>
 }
 impl EventBroadcaster {
-    pub fn create(
-        webhooks: Option<Vec<ConfiguredWebhook>>,
-        websocket_enabled: bool
-    ) -> (Option<Self>, Option<JoinHandle<()>>) {
-        let (webhook_sender, webhook_handle) = webhooks.map(WebhookSender::new)
+    pub fn new(config: &AppConfig) -> (Option<Self>, Option<JoinHandle<()>>) {
+        let (webhook_sender, webhook_handle) = config.webhooks.clone()
+            .map(WebhookSender::new)
             .map_or((None, None), |(sender, handle)| (Some(sender), Some(handle)));
 
-        let enabled = websocket_enabled || webhook_sender.is_some();
+        #[cfg(feature = "http-server")]
+        let websocket = config.http.websocket_enabled.then(WebSocketManager::new);
+
+        #[cfg(feature = "http-server")]
+        let is_enabled = webhook_sender.is_some() || websocket.is_some();
+
+        #[cfg(not(feature = "http-server"))]
+        let is_enabled = webhook_sender.is_some();
+
         (
-            if enabled {
+            if is_enabled {
                 Some(EventBroadcaster {
                     webhooks: webhook_sender,
-                    websocket: websocket_enabled.then(WebSocketManager::new)
+
+                    #[cfg(feature = "http-server")]
+                    websocket
                 })
             } else {
                 None
@@ -131,6 +149,8 @@ impl EventBroadcaster {
         if let Some(webhooks) = &self.webhooks {
             webhooks.send(event.clone());
         }
+
+        #[cfg(feature = "http-server")]
         if let Some(websocket) = &self.websocket {
             websocket.broadcast(event).await;
         }

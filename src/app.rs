@@ -4,15 +4,18 @@ use tracing::log::{debug, error, info, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-
-use crate::config::{AppConfig, HTTPConfig};
+use crate::config::AppConfig;
 use crate::events::{Event, EventBroadcaster};
-use crate::http::create_app;
-use crate::http::websocket::WebSocketManager;
 use crate::modem::ModemManager;
 use crate::modem::types::ModemIncomingMessage;
 use crate::sms::{SMSManager, SMSReceiver};
 use crate::TracingReloadHandle;
+
+#[cfg(feature = "http-server")]
+use crate::{
+    config::HTTPConfig,
+    http::{websocket::WebSocketManager, create_app}
+};
 
 #[cfg(feature = "sentry")]
 pub type SentryGuard = Option<sentry::ClientInitGuard>;
@@ -22,18 +25,18 @@ pub type SentryGuard = Option<()>;
 
 pub struct AppHandles {
     tasks: Vec<(&'static str, JoinHandle<()>)>,
-    _sentry_guard: SentryGuard,
+    _sentry_guard: SentryGuard
 }
 impl AppHandles {
-    pub async fn create(
+    pub async fn new(
         config: AppConfig,
-        tracing_reload: TracingReloadHandle,
-        _sentry_guard: SentryGuard,
+        _tracing_reload: TracingReloadHandle,
+        _sentry_guard: SentryGuard
     ) -> Result<AppHandles> {
         let mut tasks = Vec::new();
 
         // Start modem manager
-        let (mut modem, main_rx) = ModemManager::new(config.modem);
+        let (mut modem, main_rx) = ModemManager::new(&config);
         let (modem_handle, modem_sender) = match modem.start().await {
             Ok(handle) => (handle, modem.get_sender()?),
             Err(e) => bail!("Failed to start ModemManager: {:?}", e),
@@ -41,7 +44,7 @@ impl AppHandles {
         tasks.push(("Modem Handler", modem_handle));
 
         // Create event broadcaster (and webhook worker handle).
-        let (broadcaster, webhooks_handle) = EventBroadcaster::create(config.webhooks, config.http.websocket_enabled);
+        let (broadcaster, webhooks_handle) = EventBroadcaster::new(&config);
         if let Some(webhooks_worker) = webhooks_handle {
             tasks.push(("Webhooks Worker", webhooks_worker));
         }
@@ -62,12 +65,13 @@ impl AppHandles {
         tasks.push(("Modem Channel", channel_handle));
 
         // Setup HTTP server if enabled.
+        #[cfg(feature = "http-server")]
         if let Some(http_handle) = Self::start_http_server(
             config.http,
             broadcaster.and_then(|broadcaster| broadcaster.websocket),
             sms_manager,
-            tracing_reload,
             _sentry_guard.is_some(),
+            _tracing_reload
         )? {
             tasks.push(("HTTP Server", http_handle));
         }
@@ -159,12 +163,13 @@ impl AppHandles {
         }
     }
 
+    #[cfg(feature = "http-server")]
     fn start_http_server(
         config: HTTPConfig,
         websocket: Option<WebSocketManager>,
         sms_manager: SMSManager,
-        tracing_reload: TracingReloadHandle,
-        sentry_enabled: bool,
+        _sentry_enabled: bool,
+        _tracing_reload: TracingReloadHandle
     ) -> Result<Option<JoinHandle<()>>> {
         if !config.enabled {
             info!("HTTP server disabled in config");
@@ -174,7 +179,7 @@ impl AppHandles {
         let tls_config = config.tls.clone();
         let address = config.address;
 
-        let app = create_app(config, websocket, sms_manager, tracing_reload, sentry_enabled)?;
+        let app = create_app(config, websocket, sms_manager, _sentry_enabled, _tracing_reload)?;
         let handle = tokio::spawn(async move {
             let result = match tls_config {
                 Some(tls_config) => {

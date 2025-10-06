@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::{Context, Result};
-use axum::http::HeaderValue;
 use base64::Engine;
 use base64::engine::general_purpose;
-use reqwest::header::{HeaderMap, HeaderName};
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use crate::events::EventType;
+
+#[cfg(feature = "http-server")]
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -21,6 +22,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub modem: ModemConfig,
 
+    #[cfg(feature = "http-server")]
     #[serde(default)]
     pub http: HTTPConfig,
 
@@ -119,8 +121,8 @@ impl ConfiguredWebhook {
         let mut out = HeaderMap::with_capacity(map.len());
         for (k, v) in map {
             out.insert(
-                HeaderName::from_str(k)?,
-                HeaderValue::from_str(v)?
+                reqwest::header::HeaderName::from_str(k)?,
+                reqwest::header::HeaderValue::from_str(v)?
             );
         }
 
@@ -146,6 +148,7 @@ pub struct SentryConfig {
     pub send_default_pii: bool
 }
 
+#[cfg(feature = "http-server")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct HTTPConfig {
     #[serde(default)]
@@ -169,6 +172,7 @@ pub struct HTTPConfig {
     #[serde(default)]
     pub tls: Option<TLSConfig>
 }
+#[cfg(feature = "http-server")]
 impl Default for HTTPConfig {
     fn default() -> Self {
         Self {
@@ -182,6 +186,7 @@ impl Default for HTTPConfig {
         }
     }
 }
+#[cfg(feature = "http-server")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct TLSConfig {
     #[serde(deserialize_with = "deserialize_existing_file")]
@@ -196,10 +201,12 @@ fn default_modem_baud() -> u32 { 115200 }
 fn default_modem_cmd_buffer_size() -> usize { 32 }
 fn default_modem_read_buffer_size() -> usize { 4096 }
 fn default_webhook_events() -> Vec<EventType> { vec![EventType::IncomingMessage] }
-fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
 fn default_gnss_report_interval() -> u32 { 0 }
 fn default_false() -> bool { false }
 fn default_true() -> bool { true }
+
+#[cfg(feature = "http-server")]
+fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where

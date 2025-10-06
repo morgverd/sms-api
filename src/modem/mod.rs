@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use tracing::log::error;
 use tokio::sync::mpsc;
 use tokio_serial::SerialPortBuilderExt;
-use crate::config::ModemConfig;
+use crate::config::{AppConfig, ModemConfig};
 use crate::modem::commands::OutgoingCommand;
 use crate::modem::sender::ModemSender;
 use crate::modem::types::ModemIncomingMessage;
@@ -23,10 +23,10 @@ pub struct ModemManager {
     command_tx: Option<mpsc::Sender<OutgoingCommand>>
 }
 impl ModemManager {
-    pub fn new(config: ModemConfig) -> (Self, mpsc::UnboundedReceiver<ModemIncomingMessage>) {
+    pub fn new(config: &AppConfig) -> (Self, mpsc::UnboundedReceiver<ModemIncomingMessage>) {
         let (main_tx, main_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            config,
+            config: config.modem.clone(),
             main_tx,
             command_tx: None
         };

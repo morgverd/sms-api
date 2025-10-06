@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "http-server"), allow(dead_code))]
+
 pub mod types;
 mod database;
 mod encryption;
@@ -110,16 +112,16 @@ impl SMSReceiver {
             None => return None
         };
 
-        let row_id = self.manager.database.insert_message(&message, false).await;
+        let row_id_result = self.manager.database.insert_message(&message, false).await;
 
         // Send incoming event.
         if let Some(broadcaster) = &self.manager.broadcaster {
             broadcaster.broadcast(Event::IncomingMessage(
-                message.with_message_id(row_id.as_ref().ok().copied())
+                message.with_message_id(row_id_result.as_ref().ok().copied())
             )).await;
         }
 
-        Some(row_id)
+        Some(row_id_result)
     }
 
     pub async fn handle_delivery_report(&self, report: SMSIncomingDeliveryReport) -> Result<i64> {

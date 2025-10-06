@@ -82,8 +82,8 @@ pub fn create_app(
     config: HTTPConfig,
     websocket: Option<WebSocketManager>,
     sms_manager: SMSManager,
-    tracing_reload: TracingReloadHandle,
-    _sentry: bool
+    _sentry: bool,
+    _tracing_reload: TracingReloadHandle
 ) -> Result<axum::Router> {
     let mut router = axum::Router::new()
         .route("/db/sms", post(db_sms))
@@ -151,7 +151,7 @@ pub fn create_app(
     let state = HttpState {
         sms_manager,
         config,
-        tracing_reload,
+        tracing_reload: _tracing_reload,
         websocket
     };
     Ok(router.with_state(state))

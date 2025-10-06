@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "http-server"), allow(dead_code))]
+
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, Nonce};
 use aes_gcm::aead::Aead;
 use aes_gcm::aes::Aes256;
