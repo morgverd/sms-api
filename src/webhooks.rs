@@ -29,7 +29,7 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
     #[cfg(not(any(feature = "tls-rustls", feature = "tls-native")))]
     {
         return Err(anyhow::anyhow!(
-            "TLS configuration provided but no TLS features enabled. Enable either 'tls-rustls' or 'tls-native' feature"
+            "Webhook TLS configuration provided but no TLS features enabled. Compile with a TLS backend feature!"
         ));
     }
 

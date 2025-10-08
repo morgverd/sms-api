@@ -30,6 +30,7 @@ pub enum EventType {
 }
 #[cfg_attr(not(feature = "http-server"), allow(dead_code))]
 impl EventType {
+    pub const COUNT: usize = 5;
 
     #[inline]
     pub const fn to_bit(self) -> u8 {

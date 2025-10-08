@@ -1,6 +1,6 @@
 [package]
 name = "sms-server"
-version = "2.1.1"
+version = "2.1.2"
 edition = "2021"
 license = "AGPL-3.0-only"
 build = "build.rs"
@@ -33,7 +33,7 @@ db-sqlite = ["sqlx/sqlite", "sqlx/runtime-tokio"]
 sms-pdu = "1.1.0"
 tokio = { version = "1.45.1", features = ["full"] }
 serde = { version = "1.0.219", features = ["derive"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls"] }
+sqlx = { version = "0.8.6" }
 clap = { version = "4.5.39", features = ["derive"] }
 toml = { version = "0.9.5", default-features = false, features = ["serde", "parse"] }
 reqwest = { version = "0.12.19", default-features = false, features = ["json"] }

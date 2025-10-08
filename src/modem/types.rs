@@ -23,10 +23,13 @@ pub enum ModemRequest {
     GetGNSSLocation
 }
 impl ModemRequest {
-    pub fn get_default_timeout(&self) -> Duration {
+    const TIMEOUT_SMS: Duration = Duration::from_secs(30);
+    const TIMEOUT_DEFAULT: Duration = Duration::from_secs(5);
+
+    pub const fn get_default_timeout(&self) -> Duration {
         match self {
-            ModemRequest::SendSMS { .. } => Duration::from_secs(30),
-            _ => Duration::from_secs(5)
+            ModemRequest::SendSMS { .. } => Self::TIMEOUT_SMS,
+            _ => Self::TIMEOUT_DEFAULT
         }
     }
 }

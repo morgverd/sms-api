@@ -186,6 +186,7 @@ impl Default for HTTPConfig {
         }
     }
 }
+#[cfg_attr(not(any(feature = "tls-rustls", feature = "tls-native")), allow(dead_code))]
 #[cfg(feature = "http-server")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct TLSConfig {

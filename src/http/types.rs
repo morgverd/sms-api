@@ -108,23 +108,91 @@ pub struct WebSocketQuery {
 }
 impl WebSocketQuery {
     pub fn get_event_types(&self) -> Option<Vec<EventType>> {
-        match &self.events {
-            Some(events_str) if events_str == "*" => None, // Accept all events
-            Some(events_str) => {
-                let events: Vec<EventType> = events_str
-                    .split(',')
-                    .filter_map(|s| EventType::try_from(s.trim()).ok())
-                    .collect::<HashSet<_>>()
-                    .into_iter()
-                    .collect();
-
-                if events.is_empty() {
-                    None // If no valid events parsed, accept all
-                } else {
-                    Some(events)
-                }
-            },
-            None => None // No filter specified, accept all events
+        let events_str = self.events.as_ref()?;
+        if events_str == "*" {
+            return None;
         }
+
+        let events: Vec<EventType> = events_str
+            .split(",")
+            .filter_map(|s| EventType::try_from(s.trim()).ok())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // If there are none or all, accept all events by applying no filter
+        let size = events.len();
+        if size == 0 || size == EventType::COUNT {
+            return None;
+        }
+
+        Some(events)
+    }
+}
+
+#[cfg(test)]
+mod websocket_query_tests {
+    use super::*;
+
+    #[test]
+    fn test_returns_none() {
+        let query = WebSocketQuery { events: Some("*".to_string()) };
+        assert_eq!(query.get_event_types(), None);
+
+        let query = WebSocketQuery { events: None };
+        assert_eq!(query.get_event_types(), None);
+
+        let query = WebSocketQuery { events: Some("".to_string()) };
+        assert_eq!(query.get_event_types(), None);
+
+        let query = WebSocketQuery { events: Some("invalid1,invalid2,invalid3".to_string()) };
+        assert_eq!(query.get_event_types(), None);
+
+        let query = WebSocketQuery { events: Some(" , , ".to_string()) };
+        assert_eq!(query.get_event_types(), None);
+
+        // All valid event types
+        let query = WebSocketQuery {
+            events: Some("incoming,outgoing,delivery,modem_status_update,gnss_position_report".to_string())
+        };
+        assert_eq!(query.get_event_types(), None);
+
+    }
+
+    #[test]
+    fn test_parsing_and_filtering() {
+        // Single valid
+        let query = WebSocketQuery { events: Some("incoming".to_string()) };
+        let result = query.get_event_types().unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result.contains(&EventType::IncomingMessage));
+
+        // Duplicates
+        let query = WebSocketQuery {
+            events: Some("incoming,outgoing,incoming,delivery,outgoing".to_string())
+        };
+        let result = query.get_event_types().unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&EventType::IncomingMessage));
+        assert!(result.contains(&EventType::OutgoingMessage));
+        assert!(result.contains(&EventType::DeliveryReport));
+
+        // Mixed valid and invalid events with whitespace
+        let query = WebSocketQuery {
+            events: Some(" incoming , invalid_event , outgoing , unknown, delivery ".to_string())
+        };
+        let result = query.get_event_types().unwrap();
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&EventType::IncomingMessage));
+        assert!(result.contains(&EventType::OutgoingMessage));
+        assert!(result.contains(&EventType::DeliveryReport));
+
+        let query = WebSocketQuery {
+            events: Some(",incoming,,outgoing,".to_string())
+        };
+        let result = query.get_event_types().unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&EventType::IncomingMessage));
+        assert!(result.contains(&EventType::OutgoingMessage));
     }
 }

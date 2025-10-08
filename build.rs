@@ -1,4 +1,3 @@
-
 fn main() {
     feature_conflicts();
 
@@ -6,16 +5,14 @@ fn main() {
     println!("cargo:rustc-env=VERSION={}", version);
     println!("cargo:warning=Feature tagged version: {}", version);
 
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_HTTP_SERVER");
-    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_SENTRY");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=Cargo.toml");
 }
 
 fn feature_conflicts() {
-
-    // TLS.
-    let tls_rustls = cfg!(feature = "tls-rustls");
-    let tls_native = cfg!(feature = "tls-native");
+    // TLS
+    let tls_rustls = std::env::var("CARGO_FEATURE_TLS_RUSTLS").is_ok();
+    let tls_native = std::env::var("CARGO_FEATURE_TLS_NATIVE").is_ok();
 
     if tls_rustls && tls_native {
         panic!("Cannot enable both 'tls-rustls' and 'tls-native' features simultaneously. Choose one.");
@@ -24,22 +21,31 @@ fn feature_conflicts() {
         println!("cargo:warning=No TLS backend selected. Consider enabling either 'tls-rustls' or 'tls-native' features for production use!");
     }
 
-    // Database.
-    if !cfg!(feature = "db-sqlite")
-        // && !cfg!(feature = "db-postgres-rustls")
-        // && !cfg!(feature = "db-postgres-native")
-    {
+    // Sentry
+    let sentry = std::env::var("CARGO_FEATURE_SENTRY").is_ok();
+    if sentry && !tls_rustls && !tls_native {
+        panic!("The 'sentry' feature requires at least one TLS backend. Enable either 'tls-rustls' or 'tls-native' feature.");
+    }
+
+    // Database
+    let db_sqlite = std::env::var("CARGO_FEATURE_DB_SQLITE").is_ok();
+    if !db_sqlite {
         panic!("At least one database backend feature must be enabled!");
     }
 }
 
 fn get_version() -> String {
     let mut suffixes = Vec::new();
-    if cfg!(feature = "http-server") {
-        suffixes.push("http");
-    }
-    if cfg!(feature = "sentry") {
-        suffixes.push("sentry");
+    let feature_names = vec![
+        ("HTTP_SERVER", "http"),
+        ("SENTRY", "sentry"),
+        ("TLS_NATIVE", "native-tls"),
+        ("TLS_RUSTLS", "rustls")
+    ];
+    for (feature, name) in feature_names {
+        if std::env::var(format!("CARGO_FEATURE_{}", feature)).is_ok() {
+            suffixes.push(name);
+        }
     }
 
     let version = env!("CARGO_PKG_VERSION");

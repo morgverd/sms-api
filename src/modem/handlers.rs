@@ -39,8 +39,9 @@ impl ModemEventHandlers {
             debug!("Sending PDU: len = {}", len);
 
             // Push CTRL+Z to end of PDU to submit.
-            let mut buf = Vec::with_capacity(pdu.as_bytes().len() + 1);
-            buf.extend_from_slice(pdu.as_bytes());
+            let encoded = pdu.as_bytes();
+            let mut buf = Vec::with_capacity(encoded.len() + 1);
+            buf.extend_from_slice(encoded);
             buf.push(0x1A);
             self.write(&buf).await?;
 

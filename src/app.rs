@@ -176,36 +176,45 @@ impl AppHandles {
             return Ok(None);
         }
 
-        let tls_config = config.tls.clone();
         let address = config.address;
+        let tls_config = config.tls.clone();
 
         let app = create_app(config, websocket, sms_manager, _sentry_enabled, _tracing_reload)?;
         let handle = tokio::spawn(async move {
             let result = match tls_config {
-                Some(tls_config) => {
-                    info!("Starting HTTPS (secure) server on {}.", address);
+                Some(_tls_config) => {
+                    #[cfg(any(feature = "tls-rustls", feature = "tls-native"))]
+                    {
+                        info!("Starting HTTPS (secure) server on {}", address);
 
-                    #[cfg(feature = "tls-rustls")]
-                    {
-                        let _  = rustls::crypto::CryptoProvider::install_default(
-                            rustls::crypto::aws_lc_rs::default_provider()
-                        );
-                        let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
-                            &tls_config.certificate_path, &tls_config.key_path
-                        ).await.expect("Failed to load rustls TLS certificates!");
-                        axum_server::bind_rustls(address, tls).serve(app.into_make_service()).await
+                        #[cfg(feature = "tls-rustls")]
+                        {
+                            let _ = rustls::crypto::CryptoProvider::install_default(
+                                rustls::crypto::aws_lc_rs::default_provider()
+                            );
+                            let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+                                &_tls_config.certificate_path, &_tls_config.key_path
+                            ).await.expect("Failed to load rustls TLS certificates!");
+                            axum_server::bind_rustls(address, tls).serve(app.into_make_service()).await.map_err(anyhow::Error::from)
+                        }
+
+                        #[cfg(all(feature = "tls-native", not(feature = "tls-rustls")))]
+                        {
+                            let tls = axum_server::tls_openssl::OpenSSLConfig::from_pem_file(
+                                &_tls_config.certificate_path, &_tls_config.key_path
+                            ).expect("Failed to load openssl TLS certificates!");
+                            axum_server::bind_openssl(address, tls).serve(app.into_make_service()).await.map_err(anyhow::Error::from)
+                        }
                     }
-                    #[cfg(feature = "tls-native")]
-                    {
-                        let tls = axum_server::tls_openssl::OpenSSLConfig::from_pem_file(
-                            &tls_config.certificate_path, &tls_config.key_path
-                        ).expect("Failed to load openssl TLS certificates!");
-                        axum_server::bind_openssl(address, tls).serve(app.into_make_service()).await
-                    }
+
+                    #[cfg(not(any(feature = "tls-rustls", feature = "tls-native")))]
+                    Err(anyhow::anyhow!(
+                        "HTTP Server TLS configuration provided but no TLS features enabled. Compile with a TLS backend feature!"
+                    ))
                 },
                 None => {
-                    info!("Starting HTTP (insecure) server on {}.", address);
-                    axum_server::bind(address).serve(app.into_make_service()).await
+                    info!("Starting HTTP (insecure) server on {}", address);
+                    axum_server::bind(address).serve(app.into_make_service()).await.map_err(anyhow::Error::from)
                 }
             };
 

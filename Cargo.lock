@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "sms-server"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3096,7 +3096,6 @@ dependencies = [
  "memchr",
  "once_cell",
  "percent-encoding",
- "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -3106,7 +3105,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
