@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use crate::events::EventType;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use crate::events::EventType;
+use std::collections::HashSet;
 
 pub type JsonResult<T> = Result<Json<HttpResponse<T>>, (StatusCode, Json<HttpResponse<T>>)>;
 
@@ -24,7 +24,7 @@ pub struct PhoneNumberFetchRequest {
     pub offset: Option<u64>,
 
     #[serde(default)]
-    pub reverse: bool
+    pub reverse: bool,
 }
 
 #[derive(Deserialize)]
@@ -38,12 +38,11 @@ pub struct MessageIdFetchRequest {
     pub offset: Option<u64>,
 
     #[serde(default)]
-    pub reverse: bool
+    pub reverse: bool,
 }
 
 #[derive(Deserialize)]
 pub struct GlobalFetchRequest {
-
     #[serde(default)]
     pub limit: Option<u64>,
 
@@ -51,7 +50,7 @@ pub struct GlobalFetchRequest {
     pub offset: Option<u64>,
 
     #[serde(default)]
-    pub reverse: bool
+    pub reverse: bool,
 }
 
 #[derive(Deserialize)]
@@ -66,18 +65,18 @@ pub struct SendSmsRequest {
     pub validity_period: Option<u8>,
 
     #[serde(default)]
-    pub timeout: Option<u32>
+    pub timeout: Option<u32>,
 }
 
 #[derive(Deserialize)]
 pub struct SetLogLevelRequest {
-    pub level: String
+    pub level: String,
 }
 
 #[derive(Serialize)]
 pub struct SendSmsResponse {
     pub message_id: i64,
-    pub reference_id: u8
+    pub reference_id: u8,
 }
 
 #[derive(Serialize)]
@@ -88,23 +87,23 @@ pub struct SmsDeviceInfo {
     pub network_operator: Option<(u8, u8, String)>,
     pub network_status: Option<(u8, u8)>,
     pub battery: Option<(u8, u8, f32)>,
-    pub signal: Option<(i32, i32)>
+    pub signal: Option<(i32, i32)>,
 }
 
 #[derive(Deserialize)]
 pub struct SetFriendlyNameRequest {
     pub phone_number: String,
-    pub friendly_name: Option<String>
+    pub friendly_name: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct GetFriendlyNameRequest {
-    pub phone_number: String
+    pub phone_number: String,
 }
 
 #[derive(Deserialize)]
 pub struct WebSocketQuery {
-    pub events: Option<String>
+    pub events: Option<String>,
 }
 impl WebSocketQuery {
     pub fn get_event_types(&self) -> Option<Vec<EventType>> {
@@ -136,40 +135,51 @@ mod websocket_query_tests {
 
     #[test]
     fn test_returns_none() {
-        let query = WebSocketQuery { events: Some("*".to_string()) };
+        let query = WebSocketQuery {
+            events: Some("*".to_string()),
+        };
         assert_eq!(query.get_event_types(), None);
 
         let query = WebSocketQuery { events: None };
         assert_eq!(query.get_event_types(), None);
 
-        let query = WebSocketQuery { events: Some("".to_string()) };
+        let query = WebSocketQuery {
+            events: Some("".to_string()),
+        };
         assert_eq!(query.get_event_types(), None);
 
-        let query = WebSocketQuery { events: Some("invalid1,invalid2,invalid3".to_string()) };
+        let query = WebSocketQuery {
+            events: Some("invalid1,invalid2,invalid3".to_string()),
+        };
         assert_eq!(query.get_event_types(), None);
 
-        let query = WebSocketQuery { events: Some(" , , ".to_string()) };
+        let query = WebSocketQuery {
+            events: Some(" , , ".to_string()),
+        };
         assert_eq!(query.get_event_types(), None);
 
         // All valid event types
         let query = WebSocketQuery {
-            events: Some("incoming,outgoing,delivery,modem_status_update,gnss_position_report".to_string())
+            events: Some(
+                "incoming,outgoing,delivery,modem_status_update,gnss_position_report".to_string(),
+            ),
         };
         assert_eq!(query.get_event_types(), None);
-
     }
 
     #[test]
     fn test_parsing_and_filtering() {
         // Single valid
-        let query = WebSocketQuery { events: Some("incoming".to_string()) };
+        let query = WebSocketQuery {
+            events: Some("incoming".to_string()),
+        };
         let result = query.get_event_types().unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains(&EventType::IncomingMessage));
 
         // Duplicates
         let query = WebSocketQuery {
-            events: Some("incoming,outgoing,incoming,delivery,outgoing".to_string())
+            events: Some("incoming,outgoing,incoming,delivery,outgoing".to_string()),
         };
         let result = query.get_event_types().unwrap();
         assert_eq!(result.len(), 3);
@@ -179,7 +189,7 @@ mod websocket_query_tests {
 
         // Mixed valid and invalid events with whitespace
         let query = WebSocketQuery {
-            events: Some(" incoming , invalid_event , outgoing , unknown, delivery ".to_string())
+            events: Some(" incoming , invalid_event , outgoing , unknown, delivery ".to_string()),
         };
         let result = query.get_event_types().unwrap();
         assert_eq!(result.len(), 3);
@@ -188,7 +198,7 @@ mod websocket_query_tests {
         assert!(result.contains(&EventType::DeliveryReport));
 
         let query = WebSocketQuery {
-            events: Some(",incoming,,outgoing,".to_string())
+            events: Some(",incoming,,outgoing,".to_string()),
         };
         let result = query.get_event_types().unwrap();
         assert_eq!(result.len(), 2);

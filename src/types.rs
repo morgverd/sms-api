@@ -12,7 +12,7 @@ pub struct SMSMessage {
     pub is_outgoing: bool,
     pub status: SMSStatus,
     pub created_at: Option<u64>,
-    pub completed_at: Option<u64>
+    pub completed_at: Option<u64>,
 }
 impl SMSMessage {
     /// Returns a clone of the message with the message_id option replaced.
@@ -30,7 +30,7 @@ pub struct SMSOutgoingMessage {
     pub content: String,
     pub flash: bool,
     pub validity_period: Option<u8>,
-    pub timeout: Option<u32>
+    pub timeout: Option<u32>,
 }
 impl SMSOutgoingMessage {
     pub fn get_validity_period(&self) -> u8 {
@@ -47,7 +47,7 @@ impl From<&SMSOutgoingMessage> for SMSMessage {
             is_outgoing: true,
             status: SMSStatus::Sent,
             created_at: None,
-            completed_at: None
+            completed_at: None,
         }
     }
 }
@@ -58,7 +58,7 @@ pub enum SMSStatus {
     Delivered,
     Received,
     TemporaryFailure,
-    PermanentFailure
+    PermanentFailure,
 }
 impl From<&SMSStatus> for u8 {
     fn from(status: &SMSStatus) -> Self {
@@ -67,7 +67,7 @@ impl From<&SMSStatus> for u8 {
             SMSStatus::Delivered => 1,
             SMSStatus::Received => 2,
             SMSStatus::TemporaryFailure => 3,
-            SMSStatus::PermanentFailure => 4
+            SMSStatus::PermanentFailure => 4,
         }
     }
 }
@@ -92,7 +92,7 @@ impl TryFrom<u8> for SMSStatus {
             2 => Ok(SMSStatus::Received),
             3 => Ok(SMSStatus::TemporaryFailure),
             4 => Ok(SMSStatus::PermanentFailure),
-            _ => Err(anyhow!("Invalid SMS status value: {}", value))
+            _ => Err(anyhow!("Invalid SMS status value: {}", value)),
         }
     }
 }
@@ -102,5 +102,5 @@ pub struct SMSDeliveryReport {
     pub report_id: Option<i64>,
     pub status: u8,
     pub is_final: bool,
-    pub created_at: Option<u64>
+    pub created_at: Option<u64>,
 }

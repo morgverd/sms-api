@@ -1,20 +1,20 @@
-use std::time::Duration;
+use crate::config::AppConfig;
+use crate::events::{Event, EventBroadcaster};
+use crate::modem::types::ModemIncomingMessage;
+use crate::modem::ModemManager;
+use crate::sms::{SMSManager, SMSReceiver};
+use crate::TracingReloadHandle;
 use anyhow::{bail, Result};
-use tracing::log::{debug, error, info, warn};
+use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use crate::config::AppConfig;
-use crate::events::{Event, EventBroadcaster};
-use crate::modem::ModemManager;
-use crate::modem::types::ModemIncomingMessage;
-use crate::sms::{SMSManager, SMSReceiver};
-use crate::TracingReloadHandle;
+use tracing::log::{debug, error, info, warn};
 
 #[cfg(feature = "http-server")]
 use crate::{
     config::HTTPConfig,
-    http::{websocket::WebSocketManager, create_app}
+    http::{create_app, websocket::WebSocketManager},
 };
 
 #[cfg(feature = "sentry")]
@@ -25,13 +25,13 @@ pub type SentryGuard = Option<()>;
 
 pub struct AppHandles {
     tasks: Vec<(&'static str, JoinHandle<()>)>,
-    _sentry_guard: SentryGuard
+    _sentry_guard: SentryGuard,
 }
 impl AppHandles {
     pub async fn new(
         config: AppConfig,
         _tracing_reload: TracingReloadHandle,
-        _sentry_guard: SentryGuard
+        _sentry_guard: SentryGuard,
     ) -> Result<AppHandles> {
         let mut tasks = Vec::new();
 
@@ -50,17 +50,11 @@ impl AppHandles {
         }
 
         // Setup SMS manager and receivers.
-        let sms_manager = SMSManager::connect(
-            config.database,
-            modem_sender,
-            broadcaster.clone()
-        ).await?;
+        let sms_manager =
+            SMSManager::connect(config.database, modem_sender, broadcaster.clone()).await?;
 
-        let (cleanup_handle, channel_handle) = Self::start_sms_receiver(
-            main_rx,
-            sms_manager.clone(),
-            broadcaster.clone()
-        );
+        let (cleanup_handle, channel_handle) =
+            Self::start_sms_receiver(main_rx, sms_manager.clone(), broadcaster.clone());
         tasks.push(("Modem Cleanup", cleanup_handle));
         tasks.push(("Modem Channel", channel_handle));
 
@@ -71,7 +65,7 @@ impl AppHandles {
             broadcaster.and_then(|broadcaster| broadcaster.websocket),
             sms_manager,
             _sentry_guard.is_some(),
-            _tracing_reload
+            _tracing_reload,
         )? {
             tasks.push(("HTTP Server", http_handle));
         }
@@ -83,7 +77,8 @@ impl AppHandles {
     }
 
     pub async fn run(self) {
-        let futures: Vec<_> = self.tasks
+        let futures: Vec<_> = self
+            .tasks
             .into_iter()
             .map(|(name, handle)| {
                 info!("Starting task: {}.", name);
@@ -104,7 +99,7 @@ impl AppHandles {
     fn start_sms_receiver(
         mut main_rx: UnboundedReceiver<ModemIncomingMessage>,
         sms_manager: SMSManager,
-        broadcaster: Option<EventBroadcaster>
+        broadcaster: Option<EventBroadcaster>,
     ) -> (JoinHandle<()>, JoinHandle<()>) {
         let receiver = SMSReceiver::new(sms_manager);
 
@@ -151,12 +146,16 @@ impl AppHandles {
             }
             ModemIncomingMessage::ModemStatusUpdate { previous, current } => {
                 if let Some(broadcaster) = broadcaster {
-                    broadcaster.broadcast(Event::ModemStatusUpdate { previous, current }).await;
+                    broadcaster
+                        .broadcast(Event::ModemStatusUpdate { previous, current })
+                        .await;
                 }
             }
             ModemIncomingMessage::GNSSPositionReport(location) => {
                 if let Some(broadcaster) = broadcaster {
-                    broadcaster.broadcast(Event::GNSSPositionReport(location)).await;
+                    broadcaster
+                        .broadcast(Event::GNSSPositionReport(location))
+                        .await;
                 }
             }
             _ => warn!("Unhandled message type: {:?}", message),
@@ -169,7 +168,7 @@ impl AppHandles {
         websocket: Option<WebSocketManager>,
         sms_manager: SMSManager,
         _sentry_enabled: bool,
-        _tracing_reload: TracingReloadHandle
+        _tracing_reload: TracingReloadHandle,
     ) -> Result<Option<JoinHandle<()>>> {
         if !config.enabled {
             info!("HTTP server disabled in config");
@@ -179,7 +178,13 @@ impl AppHandles {
         let address = config.address;
         let tls_config = config.tls.clone();
 
-        let app = create_app(config, websocket, sms_manager, _sentry_enabled, _tracing_reload)?;
+        let app = create_app(
+            config,
+            websocket,
+            sms_manager,
+            _sentry_enabled,
+            _tracing_reload,
+        )?;
         let handle = tokio::spawn(async move {
             let result = match tls_config {
                 Some(_tls_config) => {
@@ -190,20 +195,31 @@ impl AppHandles {
                         #[cfg(feature = "tls-rustls")]
                         {
                             let _ = rustls::crypto::CryptoProvider::install_default(
-                                rustls::crypto::aws_lc_rs::default_provider()
+                                rustls::crypto::aws_lc_rs::default_provider(),
                             );
                             let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
-                                &_tls_config.certificate_path, &_tls_config.key_path
-                            ).await.expect("Failed to load rustls TLS certificates!");
-                            axum_server::bind_rustls(address, tls).serve(app.into_make_service()).await.map_err(anyhow::Error::from)
+                                &_tls_config.certificate_path,
+                                &_tls_config.key_path,
+                            )
+                            .await
+                            .expect("Failed to load rustls TLS certificates!");
+                            axum_server::bind_rustls(address, tls)
+                                .serve(app.into_make_service())
+                                .await
+                                .map_err(anyhow::Error::from)
                         }
 
                         #[cfg(all(feature = "tls-native", not(feature = "tls-rustls")))]
                         {
                             let tls = axum_server::tls_openssl::OpenSSLConfig::from_pem_file(
-                                &_tls_config.certificate_path, &_tls_config.key_path
-                            ).expect("Failed to load openssl TLS certificates!");
-                            axum_server::bind_openssl(address, tls).serve(app.into_make_service()).await.map_err(anyhow::Error::from)
+                                &_tls_config.certificate_path,
+                                &_tls_config.key_path,
+                            )
+                            .expect("Failed to load openssl TLS certificates!");
+                            axum_server::bind_openssl(address, tls)
+                                .serve(app.into_make_service())
+                                .await
+                                .map_err(anyhow::Error::from)
                         }
                     }
 
@@ -211,10 +227,13 @@ impl AppHandles {
                     Err(anyhow::anyhow!(
                         "HTTP Server TLS configuration provided but no TLS features enabled. Compile with a TLS backend feature!"
                     ))
-                },
+                }
                 None => {
                     info!("Starting HTTP (insecure) server on {}", address);
-                    axum_server::bind(address).serve(app.into_make_service()).await.map_err(anyhow::Error::from)
+                    axum_server::bind(address)
+                        .serve(app.into_make_service())
+                        .await
+                        .map_err(anyhow::Error::from)
                 }
             };
 

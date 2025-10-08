@@ -15,7 +15,9 @@ fn feature_conflicts() {
     let tls_native = std::env::var("CARGO_FEATURE_TLS_NATIVE").is_ok();
 
     if tls_rustls && tls_native {
-        panic!("Cannot enable both 'tls-rustls' and 'tls-native' features simultaneously. Choose one.");
+        panic!(
+            "Cannot enable both 'tls-rustls' and 'tls-native' features simultaneously. Choose one."
+        );
     }
     if !tls_rustls && !tls_native {
         println!("cargo:warning=No TLS backend selected. Consider enabling either 'tls-rustls' or 'tls-native' features for production use!");
@@ -40,7 +42,7 @@ fn get_version() -> String {
         ("HTTP_SERVER", "http"),
         ("SENTRY", "sentry"),
         ("TLS_NATIVE", "native-tls"),
-        ("TLS_RUSTLS", "rustls")
+        ("TLS_RUSTLS", "rustls"),
     ];
     for (feature, name) in feature_names {
         if std::env::var(format!("CARGO_FEATURE_{}", feature)).is_ok() {

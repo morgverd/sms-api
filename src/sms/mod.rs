@@ -1,16 +1,10 @@
 #![cfg_attr(not(feature = "http-server"), allow(dead_code))]
 
-pub mod types;
 mod database;
 mod encryption;
 mod multipart;
+pub mod types;
 
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::sync::Arc;
-use anyhow::{bail, Result};
-use tracing::log::{debug, warn};
-use tokio::sync::Mutex;
 use crate::config::DatabaseConfig;
 use crate::events::{Event, EventBroadcaster};
 use crate::modem::sender::ModemSender;
@@ -19,32 +13,44 @@ use crate::sms::database::SMSDatabase;
 use crate::sms::multipart::SMSMultipartMessages;
 use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 use crate::types::{SMSMessage, SMSOutgoingMessage, SMSStatus};
+use anyhow::{bail, Result};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::log::{debug, warn};
 
 #[derive(Clone)]
 pub struct SMSManager {
     modem: ModemSender,
     database: Arc<SMSDatabase>,
-    broadcaster: Option<EventBroadcaster>
+    broadcaster: Option<EventBroadcaster>,
 }
 impl SMSManager {
     pub async fn connect(
         config: DatabaseConfig,
         modem: ModemSender,
-        broadcaster: Option<EventBroadcaster>
+        broadcaster: Option<EventBroadcaster>,
     ) -> Result<Self> {
         let database = Arc::new(SMSDatabase::connect(config).await?);
-        Ok(Self { modem, database, broadcaster })
+        Ok(Self {
+            modem,
+            database,
+            broadcaster,
+        })
     }
 
     /// Returns the database row ID and final modem response.
-    pub async fn send_sms(&self, message: SMSOutgoingMessage) -> Result<(Option<i64>, ModemResponse)> {
+    pub async fn send_sms(
+        &self,
+        message: SMSOutgoingMessage,
+    ) -> Result<(Option<i64>, ModemResponse)> {
         let last_response = match self.modem.send_sms(&message).await? {
-
             // If all requests were not sent, then don't store any in the database as it must
             // be a failed multipart message. Instead, return the error response.
             (false, Some(response)) => return Ok((None, response)),
             (true, Some(response)) => response,
-            _ => bail!("Missing any valid SendSMS response!")
+            _ => bail!("Missing any valid SendSMS response!"),
         };
         debug!("SMSManager last_response: {:?}", last_response);
 
@@ -53,38 +59,44 @@ impl SMSManager {
             ModemResponse::SendResult(reference_id) => {
                 new_message.message_reference.replace(*reference_id);
                 None
-            },
+            }
             ModemResponse::Error(error_message) => {
                 new_message.status = SMSStatus::PermanentFailure;
                 Some(error_message)
-            },
-            _ => bail!("Got invalid ModemResponse back from sending SMS message!")
+            }
+            _ => bail!("Got invalid ModemResponse back from sending SMS message!"),
         };
 
         // Store sent message + send failure in database.
-        let message_id_result = match self.database.insert_message(&new_message, send_failure.is_some()).await {
+        let message_id_result = match self
+            .database
+            .insert_message(&new_message, send_failure.is_some())
+            .await
+        {
             Ok(row_id) => {
                 if let Some(failure) = send_failure {
                     let _ = self.database.insert_send_failure(row_id, failure);
                 }
                 Ok(row_id)
-            },
-            Err(e) => Err(e)
+            }
+            Err(e) => Err(e),
         };
 
         // Broadcast event.
         if let Some(broadcaster) = &self.broadcaster {
-            broadcaster.broadcast(Event::OutgoingMessage(
-                new_message.with_message_id(message_id_result.as_ref().ok().copied())
-            )).await;
+            broadcaster
+                .broadcast(Event::OutgoingMessage(
+                    new_message.with_message_id(message_id_result.as_ref().ok().copied()),
+                ))
+                .await;
         }
 
         match message_id_result {
             Ok(message_id) => Ok((Some(message_id), last_response)),
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
-    
+
     pub async fn send_command(&self, request: ModemRequest) -> Result<ModemResponse> {
         self.modem.send_request(request, None).await
     }
@@ -97,31 +109,38 @@ impl SMSManager {
 #[derive(Clone)]
 pub struct SMSReceiver {
     manager: SMSManager,
-    multipart: Arc<Mutex<HashMap<(Arc<str>, u8), SMSMultipartMessages>>>
+    multipart: Arc<Mutex<HashMap<(Arc<str>, u8), SMSMultipartMessages>>>,
 }
 impl SMSReceiver {
     pub fn new(manager: SMSManager) -> Self {
-        Self { manager, multipart: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            manager,
+            multipart: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     /// Store + emit incoming SMS message.
     /// Option for multipart messages, as individual parts aren't stored only compiled result.
-    pub async fn handle_incoming_sms(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<i64>> {
-
+    pub async fn handle_incoming_sms(
+        &mut self,
+        incoming_message: SMSIncomingMessage,
+    ) -> Option<Result<i64>> {
         // Handle incoming message, discarding if it's a multipart message and not final.
         let message = match self.get_incoming_sms_message(incoming_message).await {
             Some(Ok(message)) => message,
             Some(Err(e)) => return Some(Err(e)),
-            None => return None
+            None => return None,
         };
 
         let row_id_result = self.manager.database.insert_message(&message, false).await;
 
         // Send incoming event.
         if let Some(broadcaster) = &self.manager.broadcaster {
-            broadcaster.broadcast(Event::IncomingMessage(
-                message.with_message_id(row_id_result.as_ref().ok().copied())
-            )).await;
+            broadcaster
+                .broadcast(Event::IncomingMessage(
+                    message.with_message_id(row_id_result.as_ref().ok().copied()),
+                ))
+                .await;
         }
 
         Some(row_id_result)
@@ -129,12 +148,16 @@ impl SMSReceiver {
 
     /// Store + emit delivery report.
     pub async fn handle_delivery_report(&self, report: SMSIncomingDeliveryReport) -> Result<i64> {
-
         // Find the target message from phone number and message reference. This will be fine unless we send 255
         // messages to the client before they reply with delivery reports as then there's no way to properly track.
-        let message_id = match self.manager.database.get_delivery_report_target_message(&report.phone_number, report.reference_id).await? {
+        let message_id = match self
+            .manager
+            .database
+            .get_delivery_report_target_message(&report.phone_number, report.reference_id)
+            .await?
+        {
             Some(message_id) => message_id,
-            None => bail!("Could not find target message for delivery report!")
+            None => bail!("Could not find target message for delivery report!"),
         };
 
         let is_final = report.status.is_success() || report.status.is_permanent_error();
@@ -143,14 +166,20 @@ impl SMSReceiver {
         // Send delivery report event.
         let sms_status = SMSStatus::from(&report.status);
         if let Some(broadcaster) = &self.manager.broadcaster {
-            broadcaster.broadcast(Event::DeliveryReport {
-                message_id,
-                report
-            }).await;
+            broadcaster
+                .broadcast(Event::DeliveryReport { message_id, report })
+                .await;
         }
 
-        self.manager.database.insert_delivery_report(message_id, status, is_final).await?;
-        self.manager.database.update_message_status(message_id, &sms_status, is_final).await?;
+        self.manager
+            .database
+            .insert_delivery_report(message_id, status, is_final)
+            .await?;
+
+        self.manager
+            .database
+            .update_message_status(message_id, &sms_status, is_final)
+            .await?;
 
         Ok(message_id)
     }
@@ -161,11 +190,13 @@ impl SMSReceiver {
         debug!("Cleaning up stalled multipart messages.");
         let mut guard = self.multipart.lock().await;
         guard.retain(|(phone_number, message_reference), messages| {
-
             // Show a warning whenever a message group has stalled.
             let stalled = messages.is_stalled();
             if stalled {
-                warn!("Removing received multipart message '{}' (#{}) has stalled!", phone_number, message_reference);
+                warn!(
+                    "Removing received multipart message '{}' (#{}) has stalled!",
+                    phone_number, message_reference
+                );
             }
             !stalled
         });
@@ -174,13 +205,15 @@ impl SMSReceiver {
     /// Get the final SMSMessage to broadcast/store, which is either just the
     /// incoming message directly converted or the result of a multipart message compile etc.
     /// Optional result is from the multipart message compile.
-    async fn get_incoming_sms_message(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<SMSMessage>> {
-
+    async fn get_incoming_sms_message(
+        &mut self,
+        incoming_message: SMSIncomingMessage,
+    ) -> Option<Result<SMSMessage>> {
         // Decode the message data header to get multipart header.
         let header = match incoming_message.decode_multipart_data() {
             Some(Ok(header)) => header,
             Some(Err(e)) => return Some(Err(e)),
-            None => return Some(Ok(SMSMessage::from(&incoming_message)))
+            None => return Some(Ok(SMSMessage::from(&incoming_message))),
         };
 
         let phone_number: Arc<str> = incoming_message.phone_number.clone().into();
@@ -193,11 +226,18 @@ impl SMSReceiver {
             Entry::Vacant(entry) => {
                 // New multipart message reference.
 
-                debug!("Creating new multipart handler for #{} (expecting {} parts)", message_ref, header.total);
+                debug!(
+                    "Creating new multipart handler for #{} (expecting {} parts)",
+                    message_ref, header.total
+                );
                 let mut mulipart = SMSMultipartMessages::with_capacity(header.total as usize);
 
                 if mulipart.add_message(incoming_message, header.index) {
-                    warn!("Got a 1 part multipart message from {} (#{}), that's odd!", phone_number.to_string(), message_ref);
+                    warn!(
+                        "Got a 1 part multipart message from {} (#{}), that's odd!",
+                        phone_number.to_string(),
+                        message_ref
+                    );
 
                     // Compile message, and don't insert into map since it's complete.
                     Some(mulipart.compile())
@@ -205,15 +245,17 @@ impl SMSReceiver {
                     entry.insert(mulipart);
                     None
                 }
-            },
+            }
             Entry::Occupied(mut entry) => {
-
                 // Add message part.
                 if entry.get_mut().add_message(incoming_message, header.index) {
-                    debug!("Multipart message {} complete, compiling {} parts!", message_ref, header.total);
+                    debug!(
+                        "Multipart message {} complete, compiling {} parts!",
+                        message_ref, header.total
+                    );
 
                     let complete = entry.remove();
-                    return Some(complete.compile())
+                    return Some(complete.compile());
                 }
 
                 None

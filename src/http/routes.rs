@@ -1,15 +1,19 @@
-use std::str::FromStr;
+use crate::http::types::{
+    GetFriendlyNameRequest, GlobalFetchRequest, HttpResponse, MessageIdFetchRequest,
+    PhoneNumberFetchRequest, SendSmsRequest, SendSmsResponse, SetFriendlyNameRequest,
+    SetLogLevelRequest, SmsDeviceInfo, WebSocketQuery,
+};
+use crate::http::websocket::{handle_websocket, WebSocketConnection};
+use crate::http::{get_modem_json_result, HttpState};
+use crate::modem::types::{ModemRequest, ModemResponse};
+use crate::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 use anyhow::{anyhow, bail};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::Response;
 use sms_pdu::pdu::{PduAddress, TypeOfNumber};
+use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
-use crate::http::{HttpState, get_modem_json_result};
-use crate::modem::types::{ModemRequest, ModemResponse};
-use crate::http::types::{HttpResponse, PhoneNumberFetchRequest, GlobalFetchRequest, MessageIdFetchRequest, SendSmsRequest, SendSmsResponse, SetLogLevelRequest, WebSocketQuery, SetFriendlyNameRequest, GetFriendlyNameRequest, SmsDeviceInfo};
-use crate::http::websocket::{handle_websocket, WebSocketConnection};
-use crate::types::{SMSDeliveryReport, SMSMessage, SMSOutgoingMessage};
 
 macro_rules! http_response_handler {
     ($result:expr) => {
@@ -17,16 +21,16 @@ macro_rules! http_response_handler {
             Ok(data) => Ok(axum::Json(HttpResponse {
                 success: true,
                 response: Some(data),
-                error: None
+                error: None,
             })),
             Err(e) => Err((
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 axum::Json(HttpResponse {
                     success: false,
                     response: None,
-                    error: Some(e.to_string())
-                })
-            ))
+                    error: Some(e.to_string()),
+                }),
+            )),
         }
     };
 }
@@ -38,11 +42,9 @@ macro_rules! http_get_handler {
         |$state:ident| $callback:block
     ) => {
         pub async fn $fn_name(
-            axum::extract::State($state): axum::extract::State<crate::http::HttpState>
+            axum::extract::State($state): axum::extract::State<crate::http::HttpState>,
         ) -> crate::http::types::JsonResult<$response_type> {
-            async fn inner(
-                $state: crate::http::HttpState,
-            ) -> anyhow::Result<$response_type> {
+            async fn inner($state: crate::http::HttpState) -> anyhow::Result<$response_type> {
                 $callback
             }
 
@@ -61,7 +63,7 @@ macro_rules! http_post_handler {
     ) => {
         pub async fn $fn_name(
             axum::extract::State($state): axum::extract::State<crate::http::HttpState>,
-            payload: Option<axum::Json<$request_type>>
+            payload: Option<axum::Json<$request_type>>,
         ) -> crate::http::types::JsonResult<$response_type> {
             async fn inner(
                 $state: crate::http::HttpState,
@@ -83,7 +85,7 @@ macro_rules! http_post_handler {
     ) => {
         pub async fn $fn_name(
             axum::extract::State($state): axum::extract::State<crate::http::HttpState>,
-            axum::Json($payload): axum::Json<$request_type>
+            axum::Json($payload): axum::Json<$request_type>,
         ) -> crate::http::types::JsonResult<$response_type> {
             async fn inner(
                 $state: crate::http::HttpState,
@@ -101,7 +103,7 @@ macro_rules! http_post_handler {
 macro_rules! http_modem_handler {
     ($fn_name:ident, $modem_req:expr) => {
         pub async fn $fn_name(
-            State(state): State<crate::http::HttpState>
+            State(state): State<crate::http::HttpState>,
         ) -> crate::http::types::JsonResult<crate::modem::types::ModemResponse> {
             get_modem_json_result(state, $modem_req).await
         }
@@ -128,8 +130,15 @@ http_post_handler!(
     PhoneNumberFetchRequest,
     Vec<SMSMessage>,
     |state, payload| {
-        state.sms_manager.borrow_database()
-            .get_messages(&payload.phone_number, payload.limit, payload.offset, payload.reverse)
+        state
+            .sms_manager
+            .borrow_database()
+            .get_messages(
+                &payload.phone_number,
+                payload.limit,
+                payload.offset,
+                payload.reverse,
+            )
             .await
     }
 );
@@ -139,8 +148,15 @@ http_post_handler!(
     MessageIdFetchRequest,
     Vec<SMSDeliveryReport>,
     |state, payload| {
-        state.sms_manager.borrow_database()
-            .get_delivery_reports(payload.message_id, payload.limit, payload.offset, payload.reverse)
+        state
+            .sms_manager
+            .borrow_database()
+            .get_delivery_reports(
+                payload.message_id,
+                payload.limit,
+                payload.offset,
+                payload.reverse,
+            )
             .await
     }
 );
@@ -155,7 +171,9 @@ http_post_handler!(
             None => (None, None, false),
         };
 
-        state.sms_manager.borrow_database()
+        state
+            .sms_manager
+            .borrow_database()
             .get_latest_numbers(limit, offset, reverse)
             .await
     }
@@ -166,7 +184,9 @@ http_post_handler!(
     SetFriendlyNameRequest,
     bool,
     |state, payload| {
-        state.sms_manager.borrow_database()
+        state
+            .sms_manager
+            .borrow_database()
             .update_friendly_name(payload.phone_number, payload.friendly_name)
             .await
             .map(|_| true)
@@ -178,7 +198,9 @@ http_post_handler!(
     GetFriendlyNameRequest,
     Option<String>,
     |state, payload| {
-        state.sms_manager.borrow_database()
+        state
+            .sms_manager
+            .borrow_database()
             .get_friendly_name(payload.phone_number)
             .await
     }
@@ -190,14 +212,19 @@ http_post_handler!(
     SendSmsResponse,
     |state, payload| {
         let phone_number = PduAddress::from_str(&payload.to)?;
-        if state.config.send_international_format_only && !matches!(phone_number.type_addr.type_of_number, TypeOfNumber::International) {
+        if state.config.send_international_format_only
+            && !matches!(
+                phone_number.type_addr.type_of_number,
+                TypeOfNumber::International
+            )
+        {
             bail!("Sending phone number must be in international format!");
         }
 
         // Quick-fix to make sure the number is valid before attempting.
         match phone_number.to_string().as_str() {
             "+" | "" => bail!("Invalid phone number!"),
-            _ => { }
+            _ => {}
         }
 
         let outgoing = SMSOutgoingMessage {
@@ -205,17 +232,21 @@ http_post_handler!(
             content: payload.content,
             flash: payload.flash,
             validity_period: payload.validity_period,
-            timeout: payload.timeout
+            timeout: payload.timeout,
         };
 
         let (message_id, response) = state.sms_manager.send_sms(outgoing).await?;
         match response {
             ModemResponse::SendResult(reference_id) => {
-                let message_id = message_id.ok_or_else(|| anyhow!("Message sent but no message ID returned"))?;
-                Ok(SendSmsResponse { message_id, reference_id })
-            },
+                let message_id =
+                    message_id.ok_or_else(|| anyhow!("Message sent but no message ID returned"))?;
+                Ok(SendSmsResponse {
+                    message_id,
+                    reference_id,
+                })
+            }
             ModemResponse::Error(message) => Err(anyhow!(message)),
-            _ => Err(anyhow!("Unexpected response type for SMS send request"))
+            _ => Err(anyhow!("Unexpected response type for SMS send request")),
         }
     }
 );
@@ -228,33 +259,23 @@ http_modem_handler!(sms_get_battery_level, ModemRequest::GetBatteryLevel);
 http_modem_handler!(gnss_get_status, ModemRequest::GetGNSSStatus);
 http_modem_handler!(gnss_get_location, ModemRequest::GetGNSSLocation);
 
-http_get_handler!(
-    sms_get_device_info,
-    SmsDeviceInfo,
-    |state| {
-        Ok(SmsDeviceInfo {
-            version: crate::VERSION.to_string(),
-            phone_number: state.config.phone_number,
-            service_provider: modem_extract!(state.sms_manager, ModemRequest::GetServiceProvider => ServiceProvider),
-            network_operator: modem_extract!(state.sms_manager, ModemRequest::GetNetworkOperator => NetworkOperator { status, format, operator }),
-            network_status: modem_extract!(state.sms_manager, ModemRequest::GetNetworkStatus => NetworkStatus { registration, technology }),
-            battery: modem_extract!(state.sms_manager, ModemRequest::GetBatteryLevel => BatteryLevel { status, charge, voltage }),
-            signal: modem_extract!(state.sms_manager, ModemRequest::GetSignalStrength => SignalStrength { rssi, ber })
-        })
-    }
-);
+http_get_handler!(sms_get_device_info, SmsDeviceInfo, |state| {
+    Ok(SmsDeviceInfo {
+        version: crate::VERSION.to_string(),
+        phone_number: state.config.phone_number,
+        service_provider: modem_extract!(state.sms_manager, ModemRequest::GetServiceProvider => ServiceProvider),
+        network_operator: modem_extract!(state.sms_manager, ModemRequest::GetNetworkOperator => NetworkOperator { status, format, operator }),
+        network_status: modem_extract!(state.sms_manager, ModemRequest::GetNetworkStatus => NetworkStatus { registration, technology }),
+        battery: modem_extract!(state.sms_manager, ModemRequest::GetBatteryLevel => BatteryLevel { status, charge, voltage }),
+        signal: modem_extract!(state.sms_manager, ModemRequest::GetSignalStrength => SignalStrength { rssi, ber }),
+    })
+});
 
-http_get_handler!(
-    sys_version,
-    &'static str,
-    |_state| { Ok(crate::VERSION) }
-);
+http_get_handler!(sys_version, &'static str, |_state| { Ok(crate::VERSION) });
 
-http_get_handler!(
-    sys_phone_number,
-    Option<String>,
-    |state| { Ok(state.config.phone_number) }
-);
+http_get_handler!(sys_phone_number, Option<String>, |state| {
+    Ok(state.config.phone_number)
+});
 
 http_post_handler!(
     sys_set_log_level,
@@ -263,8 +284,10 @@ http_post_handler!(
     |state, payload| {
         let filter = EnvFilter::from_str(&payload.level)?;
         tracing::log::info!("Setting log level to {} via API.", filter);
-        
-        state.tracing_reload.reload(filter)
+
+        state
+            .tracing_reload
+            .reload(filter)
             .map(|_| true)
             .map_err(|e| anyhow!(e))
     }
@@ -273,9 +296,8 @@ http_post_handler!(
 pub async fn websocket_upgrade(
     ws: WebSocketUpgrade,
     State(state): State<HttpState>,
-    Query(query_params): Query<WebSocketQuery>
+    Query(query_params): Query<WebSocketQuery>,
 ) -> Result<Response, StatusCode> {
-
     // Read all target events from query string for filtering.
     let events = query_params.get_event_types();
     let response = match state.websocket {
@@ -283,9 +305,10 @@ pub async fn websocket_upgrade(
             let connection: WebSocketConnection = (socket, events);
             handle_websocket(connection, manager)
         }),
-        None => Response::builder().status(StatusCode::NOT_FOUND)
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
             .body("Websocket functionality is disabled!".into())
-            .unwrap_or_else(|_| Response::new("Internal Server Error".into()))
+            .unwrap_or_else(|_| Response::new("Internal Server Error".into())),
     };
     Ok(response)
 }

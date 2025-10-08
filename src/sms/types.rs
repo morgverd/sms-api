@@ -1,10 +1,10 @@
-use anyhow::{anyhow, Result};
-use sms_pdu::pdu::MessageStatus;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use num_traits::cast::FromPrimitive;
-use sms_pdu::gsm_encoding::udh::UserDataHeader;
 use crate::sms::multipart::SMSMultipartHeader;
 use crate::types::{SMSMessage, SMSStatus};
+use anyhow::{anyhow, Result};
+use num_traits::cast::FromPrimitive;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sms_pdu::gsm_encoding::udh::UserDataHeader;
+use sms_pdu::pdu::MessageStatus;
 
 pub type SMSEncryptionKey = [u8; 32];
 
@@ -12,13 +12,14 @@ pub type SMSEncryptionKey = [u8; 32];
 pub struct SMSIncomingMessage {
     pub phone_number: String,
     pub user_data_header: Option<UserDataHeader>,
-    pub content: String
+    pub content: String,
 }
 impl SMSIncomingMessage {
     pub fn decode_multipart_data(&self) -> Option<Result<SMSMultipartHeader>> {
-
         // Find header component with multipart ID.
-        let component = self.user_data_header.as_ref()?
+        let component = self
+            .user_data_header
+            .as_ref()?
             .components
             .iter()
             .find(|c| c.id == 0x00)?;
@@ -30,7 +31,7 @@ impl SMSIncomingMessage {
         Some(Ok(SMSMultipartHeader {
             message_reference: component.data[0],
             total: component.data[1],
-            index: component.data[2]
+            index: component.data[2],
         }))
     }
 }
@@ -56,21 +57,22 @@ pub struct SMSIncomingDeliveryReport {
 
     #[serde(serialize_with = "serialize_message_status")]
     #[serde(deserialize_with = "deserialize_message_status")]
-    pub status: MessageStatus
+    pub status: MessageStatus,
 }
 
 fn serialize_message_status<S>(status: &MessageStatus, serializer: S) -> Result<S::Ok, S::Error>
 where
-    S: Serializer
+    S: Serializer,
 {
     serializer.serialize_u8(*status as u8)
 }
 
 fn deserialize_message_status<'de, D>(deserializer: D) -> Result<MessageStatus, D::Error>
 where
-    D: Deserializer<'de>
+    D: Deserializer<'de>,
 {
     let value = u8::deserialize(deserializer)?;
-    MessageStatus::from_u8(value)
-        .ok_or_else(|| serde::de::Error::custom(format!("Invalid MessageStatus value: 0x{:02x}", value)))
+    MessageStatus::from_u8(value).ok_or_else(|| {
+        serde::de::Error::custom(format!("Invalid MessageStatus value: 0x{:02x}", value))
+    })
 }

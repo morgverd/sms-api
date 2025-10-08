@@ -25,7 +25,6 @@ impl LineBuffer {
 
         // Prevent unbounded growth.
         if self.buffer.len() > self.max_buffer_size {
-
             // Trim the oldest data, keeping only the most recent max_buffer_size bytes.
             let keep_from = self.buffer.len().saturating_sub(self.max_buffer_size);
             self.buffer.drain(..keep_from);
@@ -39,13 +38,17 @@ impl LineBuffer {
             match self.buffer[i] {
                 b'\r' | b'\n' => {
                     if i > start {
-                        if let Some(line_event) = self.try_create_event(&self.buffer[start..i], LineEvent::Line) {
+                        if let Some(line_event) =
+                            self.try_create_event(&self.buffer[start..i], LineEvent::Line)
+                        {
                             events.push(line_event);
                         }
                     }
 
                     // Skip all consecutive newlines.
-                    while i < self.buffer.len() && (self.buffer[i] == b'\r' || self.buffer[i] == b'\n') {
+                    while i < self.buffer.len()
+                        && (self.buffer[i] == b'\r' || self.buffer[i] == b'\n')
+                    {
                         i += 1;
                     }
                     start = i;
@@ -56,7 +59,9 @@ impl LineBuffer {
                         || (i > 0 && (self.buffer[i - 1] == b'\n' || self.buffer[i - 1] == b'\r'));
 
                     if is_prompt {
-                        if let Some(prompt_event) = self.try_create_event(&self.buffer[start..=i], LineEvent::Prompt) {
+                        if let Some(prompt_event) =
+                            self.try_create_event(&self.buffer[start..=i], LineEvent::Prompt)
+                        {
                             events.push(prompt_event);
                         }
                         i += 1;

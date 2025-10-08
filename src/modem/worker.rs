@@ -1,16 +1,16 @@
-use std::time::Duration;
-use rppal::gpio;
-use anyhow::{anyhow, Result};
-use tracing::log::{debug, error, info, warn};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc;
-use tokio::time::interval;
-use tokio_serial::SerialStream;
 use crate::config::ModemConfig;
 use crate::modem::buffer::LineBuffer;
 use crate::modem::commands::OutgoingCommand;
 use crate::modem::state_machine::ModemStateMachine;
 use crate::modem::types::{ModemIncomingMessage, ModemResponse, ModemStatus};
+use anyhow::{anyhow, Result};
+use rppal::gpio;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
+use tokio::time::interval;
+use tokio_serial::SerialStream;
+use tracing::log::{debug, error, info, warn};
 
 macro_rules! init_cmd {
     ($cmd:expr, $resp:expr) => {
@@ -33,10 +33,14 @@ pub struct ModemWorker {
     power_pin: Option<gpio::OutputPin>,
     main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
     worker_event_rx: mpsc::UnboundedReceiver<WorkerEvent>,
-    config: ModemConfig
+    config: ModemConfig,
 }
 impl ModemWorker {
-    pub fn new(port: SerialStream, main_tx: mpsc::UnboundedSender<ModemIncomingMessage>, config: ModemConfig) -> Result<Self> {
+    pub fn new(
+        port: SerialStream,
+        main_tx: mpsc::UnboundedSender<ModemIncomingMessage>,
+        config: ModemConfig,
+    ) -> Result<Self> {
         let (worker_event_tx, worker_event_rx) = mpsc::unbounded_channel();
 
         // Get the Pi's GPIO power pin.
@@ -53,15 +57,14 @@ impl ModemWorker {
             power_pin,
             main_tx,
             worker_event_rx,
-            config
+            config,
         })
     }
 
     pub async fn initialize_and_run(
         mut self,
-        command_rx: mpsc::Receiver<OutgoingCommand>
+        command_rx: mpsc::Receiver<OutgoingCommand>,
     ) -> Result<()> {
-
         // Test the initial connection, toggling GPIO power pin if it fails.
         // This should ensure the hat is always powered on just before initialization.
         match self.test_connection().await {
@@ -86,22 +89,17 @@ impl ModemWorker {
         if self.status != ModemStatus::Online {
             return Err(anyhow!("Modem is offline"));
         }
-        self.port.write_all(data)
-            .await
-            .map_err(|e| anyhow!(e))
+        self.port.write_all(data).await.map_err(|e| anyhow!(e))
     }
 
-    pub async fn run(
-        mut self,
-        mut command_rx: mpsc::Receiver<OutgoingCommand>
-    ) -> Result<()> {
+    pub async fn run(mut self, mut command_rx: mpsc::Receiver<OutgoingCommand>) -> Result<()> {
         let mut line_buffer = LineBuffer::with_max_size(self.config.line_buffer_size);
 
         let mut timeout_interval = interval(Duration::from_secs(1));
         let mut reconnect_interval = interval(Duration::from_secs(30));
 
         debug!("Starting ModemWorker status loop.");
-        let mut read_buffer =  vec![0u8; self.config.read_buffer_size];
+        let mut read_buffer = vec![0u8; self.config.read_buffer_size];
         loop {
             match self.status {
                 ModemStatus::Online => {
@@ -157,7 +155,7 @@ impl ModemWorker {
                             }
                         }
                     }
-                },
+                }
                 ModemStatus::ShuttingDown => {
                     // Process any pending worker events
                     while let Ok(event) = self.worker_event_rx.try_recv() {
@@ -168,7 +166,9 @@ impl ModemWorker {
 
                     // Reject any pending commands
                     while let Ok(mut cmd) = command_rx.try_recv() {
-                        let _ = cmd.respond(ModemResponse::Error("Modem is shutting down".to_string())).await;
+                        let _ = cmd
+                            .respond(ModemResponse::Error("Modem is shutting down".to_string()))
+                            .await;
                     }
 
                     // Wait a bit then transition to offline
@@ -176,7 +176,7 @@ impl ModemWorker {
                     self.set_status(ModemStatus::Offline);
                     self.state_machine.reset_to_idle();
                     line_buffer.clear();
-                },
+                }
                 ModemStatus::Offline => {
                     tokio::select! {
                         // Still process worker events when offline
@@ -206,8 +206,8 @@ impl ModemWorker {
                             }
                         }
                     }
-                },
-                _ => debug!("Cannot run ModemStatus: {:?}", self.status)
+                }
+                _ => debug!("Cannot run ModemStatus: {:?}", self.status),
             }
         }
     }
@@ -237,11 +237,14 @@ impl ModemWorker {
         // Send message outside of modem for webhooks etc.
         let message = ModemIncomingMessage::ModemStatusUpdate {
             previous,
-            current: status.clone()
+            current: status.clone(),
         };
         match self.main_tx.send(message) {
             Ok(_) => debug!("Sent ModemOnlineStatusUpdate, Status: {:?}", status),
-            Err(e) => error!("Failed to send ModemOnlineStatusUpdate, Status: {:?}, Error: {}", status, e)
+            Err(e) => error!(
+                "Failed to send ModemOnlineStatusUpdate, Status: {:?}, Error: {}",
+                status, e
+            ),
         }
     }
 
@@ -281,23 +284,28 @@ impl ModemWorker {
 
     async fn initialize_modem(&mut self) -> Result<()> {
         let mut initialization_commands: Vec<(Vec<u8>, Vec<u8>)> = vec![
-            init_cmd!("ATZ\r\n", "OK"),                // Reset
-            init_cmd!("ATE0\r\n", "OK"),               // Disable echo
-            init_cmd!("AT+CMGF=0\r\n", "OK"),          // Set SMS message format to PDU
-            init_cmd!("AT+CSCS=\"GSM\"\r\n", "OK"),    // Use GSM 7-bit alphabet
-            init_cmd!("AT+CNMI=2,2,0,1,0\r\n", "OK"),  // Receive all incoming SMS messages and delivery reports
+            init_cmd!("ATZ\r\n", "OK"),                              // Reset
+            init_cmd!("ATE0\r\n", "OK"),                             // Disable echo
+            init_cmd!("AT+CMGF=0\r\n", "OK"), // Set SMS message format to PDU
+            init_cmd!("AT+CSCS=\"GSM\"\r\n", "OK"), // Use GSM 7-bit alphabet
+            init_cmd!("AT+CNMI=2,2,0,1,0\r\n", "OK"), // Receive all incoming SMS messages and delivery reports
             init_cmd!("AT+CSMP=49,167,0,0\r\n", "OK"), // Receive delivery receipts from sent messages
-            init_cmd!("AT+CPMS=\"ME\",\"ME\",\"ME\"\r\n", "+CPMS:") // Store all messages in memory only
+            init_cmd!("AT+CPMS=\"ME\",\"ME\",\"ME\"\r\n", "+CPMS:"), // Store all messages in memory only
         ];
 
         // If GNSS is enabled power it on and start its receiver.
         if self.config.gnss_enabled {
-            info!("The GNSS module is enabled with a report interval of {}! Powering on...", self.config.gnss_report_interval);
+            info!(
+                "The GNSS module is enabled with a report interval of {}! Powering on...",
+                self.config.gnss_report_interval
+            );
             initialization_commands.push(init_cmd!("AT+CGNSPWR=1\r\n", "OK")); // Power on
             initialization_commands.push(init_cmd!("AT+CGPSRST=0\r\n", "OK")); // Cold start
 
             // Create GNSS report interval command (0 = disabled).
-            let interval_command = format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval).as_bytes().to_vec();
+            let interval_command = format!("AT+CGNSURC={}\r\n", self.config.gnss_report_interval)
+                .as_bytes()
+                .to_vec();
             initialization_commands.push((interval_command, b"OK".to_vec())); // Set navigation URC report interval
         }
 
@@ -315,7 +323,9 @@ impl ModemWorker {
             if !response_str.contains(&*expected_str) {
                 return Err(anyhow!(
                     "Initialization command '{:?}' failed. Expected: '{}', Got: '{}'",
-                    command_str, expected_str, response_str.trim()
+                    command_str,
+                    expected_str,
+                    response_str.trim()
                 ));
             }
         }
@@ -329,29 +339,28 @@ impl ModemWorker {
         let mut buf = [0u8; 1024];
 
         let timeout = Duration::from_millis(50);
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            async {
-                loop {
-                    match self.port.try_read(&mut buf) {
-                        Ok(n) if n > 0 => {
-                            response.extend_from_slice(&buf[..n]);
-                            let response_str = String::from_utf8_lossy(&response);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match self.port.try_read(&mut buf) {
+                    Ok(n) if n > 0 => {
+                        response.extend_from_slice(&buf[..n]);
+                        let response_str = String::from_utf8_lossy(&response);
 
-                            if response_str.contains("OK\r\n") || response_str.contains("ERROR") {
-                                break;
-                            }
+                        if response_str.contains("OK\r\n") || response_str.contains("ERROR") {
+                            break;
                         }
-                        Ok(_) => tokio::time::sleep(timeout).await,
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                            tokio::time::sleep(timeout).await
-                        },
-                        Err(e) => return Err(anyhow!("Read error during initialization: {}", e)),
                     }
+                    Ok(_) => tokio::time::sleep(timeout).await,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        tokio::time::sleep(timeout).await
+                    }
+                    Err(e) => return Err(anyhow!("Read error during initialization: {}", e)),
                 }
-                Ok(())
             }
-        ).await.map_err(|_| anyhow!("Timeout waiting for response"))??;
+            Ok(())
+        })
+        .await
+        .map_err(|_| anyhow!("Timeout waiting for response"))??;
 
         Ok(response)
     }
@@ -367,7 +376,10 @@ impl ModemWorker {
         if response_str.contains("OK") {
             Ok(())
         } else {
-            Err(anyhow!("Connection test failed: received '{}'", response_str.trim()))
+            Err(anyhow!(
+                "Connection test failed: received '{}'",
+                response_str.trim()
+            ))
         }
     }
 

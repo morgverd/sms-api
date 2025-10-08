@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
 use crate::modem::types::{GNSSFixStatus, GNSSLocation};
+use anyhow::{anyhow, Result};
 
 pub fn parse_cmgs_result(response: &str) -> Result<u8> {
     let cmgs_line = response
@@ -128,8 +128,12 @@ pub fn parse_cspn_response(response: &str) -> Result<String> {
         .trim();
 
     // Find the quoted operator name.
-    let quote_start = data.find('"').ok_or(anyhow!("Missing opening quote for operator name"))?;
-    let quote_end = data.rfind('"').ok_or(anyhow!("Missing closing quote for operator name"))?;
+    let quote_start = data
+        .find('"')
+        .ok_or(anyhow!("Missing opening quote for operator name"))?;
+    let quote_end = data
+        .rfind('"')
+        .ok_or(anyhow!("Missing closing quote for operator name"))?;
 
     if quote_start >= quote_end {
         return Err(anyhow!("Invalid quoted operator name"));
@@ -218,11 +222,17 @@ mod tests {
 
         let response = "AT+CMGS=10\r\n  +CMGS:   42  \r\nOK\r\n";
         let result = parse_cmgs_result(response).unwrap();
-        assert_eq!(result, 42, "Expected message reference 42 with whitespace handling");
+        assert_eq!(
+            result, 42,
+            "Expected message reference 42 with whitespace handling"
+        );
 
         let response = "Some other line\r\n+CMGS: 99\r\nAnother line\r\nOK\r\n";
         let result = parse_cmgs_result(response).unwrap();
-        assert_eq!(result, 99, "Expected message reference 99 with multiple lines");
+        assert_eq!(
+            result, 99,
+            "Expected message reference 99 with multiple lines"
+        );
 
         // Edge case: maximum u8 value
         let response = "+CMGS: 255\r\n";
@@ -237,22 +247,40 @@ mod tests {
         // Failure cases
         let response = "AT+CMGS=10\r\nOK\r\n";
         let err = parse_cmgs_result(response).unwrap_err();
-        assert!(err.to_string().contains("No CMGS response found"), "Expected 'No CMGS response found' error");
+        assert!(
+            err.to_string().contains("No CMGS response found"),
+            "Expected 'No CMGS response found' error"
+        );
 
         let response = "+CMGS: abc\r\n";
         let err = parse_cmgs_result(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid CMGS message reference number"), "Expected invalid reference number error");
+        assert!(
+            err.to_string()
+                .contains("Invalid CMGS message reference number"),
+            "Expected invalid reference number error"
+        );
 
         let response = "+CMGS: 256\r\n"; // Overflow u8
         let err = parse_cmgs_result(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid CMGS message reference number"), "Expected error for value exceeding u8 range");
+        assert!(
+            err.to_string()
+                .contains("Invalid CMGS message reference number"),
+            "Expected error for value exceeding u8 range"
+        );
 
         let response = "+CMGS: -1\r\n"; // Negative value
         let err = parse_cmgs_result(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid CMGS message reference number"), "Expected error for negative value");
+        assert!(
+            err.to_string()
+                .contains("Invalid CMGS message reference number"),
+            "Expected error for negative value"
+        );
 
         let response = "";
-        assert!(parse_cmgs_result(response).is_err(), "Expected error for empty string");
+        assert!(
+            parse_cmgs_result(response).is_err(),
+            "Expected error for empty string"
+        );
     }
 
     #[test]
@@ -282,23 +310,38 @@ mod tests {
         // Failure cases
         let response = "OK\r\n";
         let err = parse_creg_response(response).unwrap_err();
-        assert!(err.to_string().contains("No CREG response found"), "Expected 'No CREG response found' error");
+        assert!(
+            err.to_string().contains("No CREG response found"),
+            "Expected 'No CREG response found' error"
+        );
 
         let response = "+CREG: 1\r\n";
         let err = parse_creg_response(response).unwrap_err();
-        assert!(err.to_string().contains("Missing technology status"), "Expected missing technology status error");
+        assert!(
+            err.to_string().contains("Missing technology status"),
+            "Expected missing technology status error"
+        );
 
         let response = "+CREG: abc,7\r\n";
         let err = parse_creg_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid registration status"), "Expected invalid registration status error");
+        assert!(
+            err.to_string().contains("Invalid registration status"),
+            "Expected invalid registration status error"
+        );
 
         let response = "+CREG: 1,xyz\r\n";
         let err = parse_creg_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid technology status"), "Expected invalid technology status error");
+        assert!(
+            err.to_string().contains("Invalid technology status"),
+            "Expected invalid technology status error"
+        );
 
         let response = "+CREG: 1,\r\n"; // Empty technology field
         let err = parse_creg_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid technology status"), "Expected error for empty technology field");
+        assert!(
+            err.to_string().contains("Invalid technology status"),
+            "Expected error for empty technology field"
+        );
     }
 
     #[test]
@@ -328,26 +371,44 @@ mod tests {
         // Failure cases
         let response = "ERROR\r\n";
         let err = parse_csq_response(response).unwrap_err();
-        assert!(err.to_string().contains("No CSQ response found"), "Expected 'No CSQ response found' error");
+        assert!(
+            err.to_string().contains("No CSQ response found"),
+            "Expected 'No CSQ response found' error"
+        );
 
         let response = "+CSQ: 15\r\n";
         let err = parse_csq_response(response).unwrap_err();
-        assert!(err.to_string().contains("Missing BER value"), "Expected missing BER value error");
+        assert!(
+            err.to_string().contains("Missing BER value"),
+            "Expected missing BER value error"
+        );
 
         let response = "+CSQ: abc,99\r\n";
         let err = parse_csq_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid RSSI value"), "Expected invalid RSSI value error");
+        assert!(
+            err.to_string().contains("Invalid RSSI value"),
+            "Expected invalid RSSI value error"
+        );
 
         let response = "+CSQ: 15,xyz\r\n";
         let err = parse_csq_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid BER value"), "Expected invalid BER value error");
+        assert!(
+            err.to_string().contains("Invalid BER value"),
+            "Expected invalid BER value error"
+        );
 
         let response = "+CSQ: ,99\r\n"; // Empty RSSI field
         let err = parse_csq_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid RSSI value"), "Expected error for empty RSSI field");
+        assert!(
+            err.to_string().contains("Invalid RSSI value"),
+            "Expected error for empty RSSI field"
+        );
 
         let response = "\r\n\r\n\r\n";
-        assert!(parse_csq_response(response).is_err(), "Expected error for empty lines");
+        assert!(
+            parse_csq_response(response).is_err(),
+            "Expected error for empty lines"
+        );
     }
 
     #[test]
@@ -363,7 +424,10 @@ mod tests {
         let (status, format, operator) = parse_cops_response(response).unwrap();
         assert_eq!(status, 1, "Expected operator status 1");
         assert_eq!(format, 0, "Expected operator format 0");
-        assert_eq!(operator, "T-Mobile UK", "Expected operator name 'T-Mobile UK'");
+        assert_eq!(
+            operator, "T-Mobile UK",
+            "Expected operator name 'T-Mobile UK'"
+        );
 
         // Test with special characters in operator name
         let response = "+COPS: 2,1,\"O2-UK\"\r\n";
@@ -382,27 +446,47 @@ mod tests {
         // Failure cases
         let response = "ERROR\r\n";
         let err = parse_cops_response(response).unwrap_err();
-        assert!(err.to_string().contains("No COPS response found"), "Expected 'No COPS response found' error");
+        assert!(
+            err.to_string().contains("No COPS response found"),
+            "Expected 'No COPS response found' error"
+        );
 
         let response = "+COPS: 0,2,Vodafone\r\n";
         let err = parse_cops_response(response).unwrap_err();
-        assert!(err.to_string().contains("Operator name not properly quoted"), "Expected unquoted operator name error");
+        assert!(
+            err.to_string()
+                .contains("Operator name not properly quoted"),
+            "Expected unquoted operator name error"
+        );
 
         let response = "+COPS: 0,2\r\n";
         let err = parse_cops_response(response).unwrap_err();
-        assert!(err.to_string().contains("Missing operator name"), "Expected missing operator name error");
+        assert!(
+            err.to_string().contains("Missing operator name"),
+            "Expected missing operator name error"
+        );
 
         let response = "+COPS: abc,2,\"Vodafone\"\r\n";
         let err = parse_cops_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid operator status"), "Expected invalid operator status error");
+        assert!(
+            err.to_string().contains("Invalid operator status"),
+            "Expected invalid operator status error"
+        );
 
         let response = "+COPS: 0,xyz,\"Vodafone\"\r\n";
         let err = parse_cops_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid operator format"), "Expected invalid operator format error");
+        assert!(
+            err.to_string().contains("Invalid operator format"),
+            "Expected invalid operator format error"
+        );
 
         let response = "+COPS: 0,2,\"Vodafone\r\n"; // Missing closing quote
         let err = parse_cops_response(response).unwrap_err();
-        assert!(err.to_string().contains("Operator name not properly quoted"), "Expected error for missing closing quote");
+        assert!(
+            err.to_string()
+                .contains("Operator name not properly quoted"),
+            "Expected error for missing closing quote"
+        );
     }
 
     #[test]
@@ -423,7 +507,10 @@ mod tests {
 
         let response = "+CSPN: \"Operator-Name_123\",0\r\n";
         let operator = parse_cspn_response(response).unwrap();
-        assert_eq!(operator, "Operator-Name_123", "Expected operator name with mixed characters");
+        assert_eq!(
+            operator, "Operator-Name_123",
+            "Expected operator name with mixed characters"
+        );
 
         // Edge case: empty operator name
         let response = "+CSPN: \"\",0\r\n";
@@ -433,19 +520,31 @@ mod tests {
         // Failure cases
         let response = "ERROR\r\n";
         let err = parse_cspn_response(response).unwrap_err();
-        assert!(err.to_string().contains("No CSPN response found"), "Expected 'No CSPN response found' error");
+        assert!(
+            err.to_string().contains("No CSPN response found"),
+            "Expected 'No CSPN response found' error"
+        );
 
         let response = "+CSPN: EE,0\r\n";
         let err = parse_cspn_response(response).unwrap_err();
-        assert!(err.to_string().contains("Missing opening quote"), "Expected missing opening quote error");
+        assert!(
+            err.to_string().contains("Missing opening quote"),
+            "Expected missing opening quote error"
+        );
 
         let response = "+CSPN: \"EE,0\r\n";
         let err = parse_cspn_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid quoted operator name"), "Expected invalid quoted operator name error (same quote found for open and close)");
+        assert!(
+            err.to_string().contains("Invalid quoted operator name"),
+            "Expected invalid quoted operator name error (same quote found for open and close)"
+        );
 
         let response = "+CSPN: EE\",0\r\n"; // Missing opening quote (closing quote exists)
         let err = parse_cspn_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid quoted operator name"), "Expected error for invalid quotes (closing quote before opening)");
+        assert!(
+            err.to_string().contains("Invalid quoted operator name"),
+            "Expected error for invalid quotes (closing quote before opening)"
+        );
     }
 
     #[test]
@@ -455,52 +554,87 @@ mod tests {
         let (status, charge, voltage) = parse_cbc_response(response).unwrap();
         assert_eq!(status, 0, "Expected battery status 0");
         assert_eq!(charge, 50, "Expected battery charge 50%");
-        assert!((voltage - 3.8).abs() < f32::EPSILON, "Expected voltage 3.8V, got {}", voltage);
+        assert!(
+            (voltage - 3.8).abs() < f32::EPSILON,
+            "Expected voltage 3.8V, got {}",
+            voltage
+        );
 
         let response = "+CBC: 1,100,4123\r\nOK\r\n";
         let (status, charge, voltage) = parse_cbc_response(response).unwrap();
         assert_eq!(status, 1, "Expected battery status 1");
         assert_eq!(charge, 100, "Expected battery charge 100%");
-        assert!((voltage - 4.123).abs() < f32::EPSILON, "Expected voltage 4.123V, got {}", voltage);
+        assert!(
+            (voltage - 4.123).abs() < f32::EPSILON,
+            "Expected voltage 4.123V, got {}",
+            voltage
+        );
 
         // Test boundary values
         let response = "+CBC: 0,0,0\r\n";
         let (status, charge, voltage) = parse_cbc_response(response).unwrap();
         assert_eq!(status, 0, "Expected battery status 0");
         assert_eq!(charge, 0, "Expected battery charge 0%");
-        assert!((voltage - 0.0).abs() < f32::EPSILON, "Expected voltage 0.0V, got {}", voltage);
+        assert!(
+            (voltage - 0.0).abs() < f32::EPSILON,
+            "Expected voltage 0.0V, got {}",
+            voltage
+        );
 
         let response = "+CBC: 2,75,4200\r\n";
         let (status, charge, voltage) = parse_cbc_response(response).unwrap();
         assert_eq!(status, 2, "Expected battery status 2");
         assert_eq!(charge, 75, "Expected battery charge 75%");
-        assert!((voltage - 4.2).abs() < f32::EPSILON, "Expected voltage 4.2V, got {}", voltage);
+        assert!(
+            (voltage - 4.2).abs() < f32::EPSILON,
+            "Expected voltage 4.2V, got {}",
+            voltage
+        );
 
         // Test voltage conversion precision
         let response = "+CBC: 0,50,3456\r\n";
         let (_, _, voltage) = parse_cbc_response(response).unwrap();
-        assert!((voltage - 3.456).abs() < 0.001, "Expected voltage 3.456V with proper precision, got {}", voltage);
+        assert!(
+            (voltage - 3.456).abs() < 0.001,
+            "Expected voltage 3.456V with proper precision, got {}",
+            voltage
+        );
 
         // Failure cases
         let response = "ERROR\r\n";
         let err = parse_cbc_response(response).unwrap_err();
-        assert!(err.to_string().contains("No CBC response found"), "Expected 'No CBC response found' error");
+        assert!(
+            err.to_string().contains("No CBC response found"),
+            "Expected 'No CBC response found' error"
+        );
 
         let response = "+CBC: 0,50\r\n";
         let err = parse_cbc_response(response).unwrap_err();
-        assert!(err.to_string().contains("Missing battery voltage"), "Expected missing battery voltage error");
+        assert!(
+            err.to_string().contains("Missing battery voltage"),
+            "Expected missing battery voltage error"
+        );
 
         let response = "+CBC: abc,50,3800\r\n";
         let err = parse_cbc_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid battery status"), "Expected invalid battery status error");
+        assert!(
+            err.to_string().contains("Invalid battery status"),
+            "Expected invalid battery status error"
+        );
 
         let response = "+CBC: 0,xyz,3800\r\n";
         let err = parse_cbc_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid battery charge"), "Expected invalid battery charge error");
+        assert!(
+            err.to_string().contains("Invalid battery charge"),
+            "Expected invalid battery charge error"
+        );
 
         let response = "+CBC: 0,50,abc\r\n";
         let err = parse_cbc_response(response).unwrap_err();
-        assert!(err.to_string().contains("Invalid battery voltage"), "Expected invalid battery voltage error");
+        assert!(
+            err.to_string().contains("Invalid battery voltage"),
+            "Expected invalid battery voltage error"
+        );
 
         let response = "+CBC: 0,150,3800\r\n"; // Charge > 100 (still valid u8)
         let (_, charge, _) = parse_cbc_response(response).unwrap();
@@ -512,30 +646,53 @@ mod tests {
         // Success cases - test various fix statuses
         let response = "+CGPSSTATUS: Location 3D Fix\r\nOK\r\n";
         let result = parse_cgpsstatus_response(response);
-        assert!(result.is_ok(), "Expected successful parse of '3D Fix' status");
+        assert!(
+            result.is_ok(),
+            "Expected successful parse of '3D Fix' status"
+        );
         let status = result.unwrap();
-        assert_eq!(format!("{:?}", status), "Fix3D", "Expected Location3DFix status variant");
+        assert_eq!(
+            format!("{:?}", status),
+            "Fix3D",
+            "Expected Location3DFix status variant"
+        );
 
         let response = "+CGPSSTATUS: Location Not Fix\r\nOK\r\n";
         let result = parse_cgpsstatus_response(response);
-        assert!(result.is_ok(), "Expected successful parse of 'Not Fix' status");
+        assert!(
+            result.is_ok(),
+            "Expected successful parse of 'Not Fix' status"
+        );
 
         let response = "+CGPSSTATUS: Location 2D Fix\r\nOK\r\n";
         let result = parse_cgpsstatus_response(response);
-        assert!(result.is_ok(), "Expected successful parse of '2D Fix' status");
+        assert!(
+            result.is_ok(),
+            "Expected successful parse of '2D Fix' status"
+        );
 
         // Failure cases
         let response = "ERROR\r\n";
         let err = parse_cgpsstatus_response(response).unwrap_err();
-        assert!(err.to_string().contains("No CGPSSTATUS response found"), "Expected 'No CGPSSTATUS response found' error");
+        assert!(
+            err.to_string().contains("No CGPSSTATUS response found"),
+            "Expected 'No CGPSSTATUS response found' error"
+        );
 
         let response = "+CGPSSTATUS\r\n";
         let err = parse_cgpsstatus_response(response).unwrap_err();
-        assert!(err.to_string().contains("No CGPSSTATUS response found in buffer"), "Expected error for missing colon");
+        assert!(
+            err.to_string()
+                .contains("No CGPSSTATUS response found in buffer"),
+            "Expected error for missing colon"
+        );
 
         let response = "+CGPSSTATUS:\r\n";
         let err = parse_cgpsstatus_response(response).unwrap_err();
-        assert!(err.to_string().contains("Missing CGPS status"), "Expected error for empty status");
+        assert!(
+            err.to_string().contains("Missing CGPS status"),
+            "Expected error for empty status"
+        );
 
         let response = "+CGPSSTATUS: Invalid Status\r\n";
         let result = parse_cgpsstatus_response(response);
@@ -547,37 +704,61 @@ mod tests {
         // Success - solicited response
         let response = "+CGNSINF: 1,1,20230815120000.000,51.5074,-0.1278,85.4,0.0,0.0,1,0.9,1.2,0.8,,,10,4,,,42\r\nOK\r\n";
         let result = parse_cgnsinf_response(response, false);
-        assert!(result.is_ok(), "Expected successful parse of solicited CGNSINF");
+        assert!(
+            result.is_ok(),
+            "Expected successful parse of solicited CGNSINF"
+        );
         let location = result.unwrap();
-        assert!(format!("{:?}", location).contains("GNSSLocation"), "Expected GNSSLocation object");
+        assert!(
+            format!("{:?}", location).contains("GNSSLocation"),
+            "Expected GNSSLocation object"
+        );
 
         // Success - unsolicited response
         let response = "+UGNSINF: 1,1,20230815120000.000,51.5074,-0.1278,85.4,0.0,0.0,1,0.9,1.2,0.8,,,10,4,,,42\r\nOK\r\n";
         let result = parse_cgnsinf_response(response, true);
-        assert!(result.is_ok(), "Expected successful parse of unsolicited UGNSINF");
+        assert!(
+            result.is_ok(),
+            "Expected successful parse of unsolicited UGNSINF"
+        );
 
         // Test with different coordinate values
         let response = "+CGNSINF: 1,1,20231201093045.123,-33.8688,151.2093,12.5,1.5,2.3,5,1.1,0.9,1.0,,,15,8,,,55\r\nOK\r\n";
         let result = parse_cgnsinf_response(response, false);
-        assert!(result.is_ok(), "Expected successful parse with different coordinates");
+        assert!(
+            result.is_ok(),
+            "Expected successful parse with different coordinates"
+        );
 
         // Failure cases - wrong header
         let response = "+UGNSINF: data\r\nOK\r\n";
         let err = parse_cgnsinf_response(response, false).unwrap_err();
-        assert!(err.to_string().contains("No CGNSINF response found"), "Expected error when looking for +CGNSINF but found +UGNSINF");
+        assert!(
+            err.to_string().contains("No CGNSINF response found"),
+            "Expected error when looking for +CGNSINF but found +UGNSINF"
+        );
 
         let response = "+CGNSINF: data\r\nOK\r\n";
         let err = parse_cgnsinf_response(response, true).unwrap_err();
-        assert!(err.to_string().contains("No CGNSINF response found"), "Expected error when looking for +UGNSINF but found +CGNSINF");
+        assert!(
+            err.to_string().contains("No CGNSINF response found"),
+            "Expected error when looking for +UGNSINF but found +CGNSINF"
+        );
 
         // Missing colon and data
         let response = "+CGNSINF\r\n";
         let err = parse_cgnsinf_response(response, false).unwrap_err();
-        assert!(err.to_string().contains("Missing CGNSINF data"), "Expected error for missing colon and data");
+        assert!(
+            err.to_string().contains("Missing CGNSINF data"),
+            "Expected error for missing colon and data"
+        );
 
         let response = "+UGNSINF\r\n";
         let err = parse_cgnsinf_response(response, true).unwrap_err();
-        assert!(err.to_string().contains("Missing CGNSINF data"), "Expected error for missing colon and data in unsolicited");
+        assert!(
+            err.to_string().contains("Missing CGNSINF data"),
+            "Expected error for missing colon and data in unsolicited"
+        );
 
         // Empty data after colon
         let response = "+CGNSINF: \r\n";
@@ -587,6 +768,9 @@ mod tests {
         // Insufficient fields
         let response = "+CGNSINF: 1,1,20230815120000.000\r\n";
         let result = parse_cgnsinf_response(response, false);
-        assert!(result.is_err(), "Expected error for insufficient CGNSINF fields");
+        assert!(
+            result.is_err(),
+            "Expected error for insufficient CGNSINF fields"
+        );
     }
 }

@@ -1,10 +1,10 @@
-use std::time::Duration;
-use anyhow::anyhow;
-use tokio::time::Instant;
-use tracing::log::debug;
-use anyhow::Result;
 use crate::sms::types::SMSIncomingMessage;
 use crate::types::SMSMessage;
+use anyhow::anyhow;
+use anyhow::Result;
+use std::time::Duration;
+use tokio::time::Instant;
+use tracing::log::debug;
 
 const MULTIPART_MESSAGES_STALLED_DURATION: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
@@ -12,7 +12,7 @@ const MULTIPART_MESSAGES_STALLED_DURATION: Duration = Duration::from_secs(30 * 6
 pub struct SMSMultipartHeader {
     pub message_reference: u8,
     pub total: u8,
-    pub index: u8
+    pub index: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ impl SMSMultipartMessages {
             first_message: None,
             text_len: 0,
             text_parts: vec![None; total_size],
-            received_count: 0
+            received_count: 0,
         }
     }
 
@@ -41,10 +41,11 @@ impl SMSMultipartMessages {
 
         let idx = (index as usize).saturating_sub(1);
         if idx < self.text_parts.len() && self.text_parts[idx].is_none() {
-
             // Remove message separator char.
             let content = if message.content.ends_with("@") {
-                message.content.strip_suffix("@")
+                message
+                    .content
+                    .strip_suffix("@")
                     .unwrap_or(&message.content)
                     .to_string()
             } else {
@@ -60,14 +61,21 @@ impl SMSMultipartMessages {
             self.first_message = Some(message);
         }
 
-        debug!("Received Multipart SMS Count: {:?} | Max: {:?}", self.received_count, self.total_size);
+        debug!(
+            "Received Multipart SMS Count: {:?} | Max: {:?}",
+            self.received_count, self.total_size
+        );
         self.received_count >= self.total_size
     }
 
     pub fn compile(&self) -> Result<SMSMessage> {
         let first_message = match &self.first_message {
             Some(first_message) => first_message,
-            None => return Err(anyhow!("Missing required first message to convert into SMSMessage!"))
+            None => {
+                return Err(anyhow!(
+                    "Missing required first message to convert into SMSMessage!"
+                ))
+            }
         };
 
         let mut content = String::with_capacity(self.text_len);
@@ -98,7 +106,7 @@ mod tests {
         SMSIncomingMessage {
             phone_number: TEST_NUMBER.to_string(),
             user_data_header: None,
-            content: content.to_string()
+            content: content.to_string(),
         }
     }
 

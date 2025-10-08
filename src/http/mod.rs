@@ -2,20 +2,20 @@ mod routes;
 mod types;
 pub mod websocket;
 
+use crate::config::HTTPConfig;
+use crate::http::routes::*;
+use crate::http::types::{HttpResponse, JsonResult};
+use crate::http::websocket::WebSocketManager;
+use crate::modem::types::{ModemRequest, ModemResponse};
+use crate::sms::SMSManager;
+use crate::TracingReloadHandle;
 use anyhow::{bail, Result};
 use axum::http::{HeaderName, HeaderValue};
 use axum::routing::{get, post};
-use tracing::log::{info, warn};
 use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
-use crate::TracingReloadHandle;
-use crate::http::types::{HttpResponse, JsonResult};
-use crate::modem::types::{ModemRequest, ModemResponse};
-use crate::config::HTTPConfig;
-use crate::sms::SMSManager;
-use crate::http::websocket::WebSocketManager;
-use crate::http::routes::*;
+use tracing::log::{info, warn};
 
 #[cfg(feature = "sentry")]
 use sentry::integrations::tower::{NewSentryLayer, SentryHttpLayer};
@@ -25,12 +25,12 @@ pub struct HttpState {
     pub sms_manager: SMSManager,
     pub config: HTTPConfig,
     pub tracing_reload: TracingReloadHandle,
-    pub websocket: Option<WebSocketManager>
+    pub websocket: Option<WebSocketManager>,
 }
 
 async fn get_modem_json_result(
     state: HttpState,
-    request: ModemRequest
+    request: ModemRequest,
 ) -> JsonResult<ModemResponse> {
     let response = match state.sms_manager.send_command(request).await {
         Ok(response) => response,
@@ -38,7 +38,7 @@ async fn get_modem_json_result(
             return Ok(axum::response::Json(HttpResponse {
                 success: false,
                 response: None,
-                error: Some(e.to_string())
+                error: Some(e.to_string()),
             }))
         }
     };
@@ -83,7 +83,7 @@ pub fn create_app(
     websocket: Option<WebSocketManager>,
     sms_manager: SMSManager,
     _sentry: bool,
-    _tracing_reload: TracingReloadHandle
+    _tracing_reload: TracingReloadHandle,
 ) -> Result<axum::Router> {
     let mut router = axum::Router::new()
         .route("/db/sms", post(db_sms))
@@ -103,15 +103,11 @@ pub fn create_app(
         .route("/sys/phone-number", get(sys_phone_number))
         .route("/sys/version", get(sys_version))
         .route("/sys/set-log-level", post(sys_set_log_level))
-        .layer(
-            SetResponseHeaderLayer::overriding(
-                HeaderName::from_static("x-version"),
-                HeaderValue::from_static(crate::VERSION)
-            )
-        )
-        .layer(
-            ServiceBuilder::new().layer(CorsLayer::permissive())
-        );
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("x-version"),
+            HeaderValue::from_static(crate::VERSION),
+        ))
+        .layer(ServiceBuilder::new().layer(CorsLayer::permissive()));
 
     // Add optional websocket route if there is a manager.
     if websocket.is_some() {
@@ -140,11 +136,10 @@ pub fn create_app(
         info!("Adding Sentry HTTP layer!");
         router = router
             .layer(
-                ServiceBuilder::new().layer(NewSentryLayer::<axum::http::Request<axum::body::Body>>::new_from_top())
+                ServiceBuilder::new()
+                    .layer(NewSentryLayer::<axum::http::Request<axum::body::Body>>::new_from_top()),
             )
-            .layer(
-                ServiceBuilder::new().layer(SentryHttpLayer::new().enable_transaction())
-            )
+            .layer(ServiceBuilder::new().layer(SentryHttpLayer::new().enable_transaction()))
     }
 
     // Shared HTTP route state.
@@ -152,7 +147,7 @@ pub fn create_app(
         sms_manager,
         config,
         tracing_reload: _tracing_reload,
-        websocket
+        websocket,
     };
     Ok(router.with_state(state))
 }

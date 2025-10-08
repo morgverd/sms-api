@@ -1,24 +1,22 @@
 #![cfg_attr(not(feature = "http-server"), allow(dead_code))]
 
-use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, Nonce};
+use crate::sms::types::SMSEncryptionKey;
 use aes_gcm::aead::Aead;
 use aes_gcm::aes::Aes256;
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, Nonce};
 use anyhow::{anyhow, Result};
-use base64::Engine;
 use base64::engine::general_purpose;
+use base64::Engine;
 use cipher::consts::U12;
 use cipher::Key;
 use rand::{rng, RngCore};
-use crate::sms::types::SMSEncryptionKey;
 
 pub struct SMSEncryption {
-    cipher: AesGcm<Aes256, U12>
+    cipher: AesGcm<Aes256, U12>,
 }
 impl SMSEncryption {
     pub fn new(key: SMSEncryptionKey) -> Self {
-        let cipher = Aes256Gcm::new(
-            Key::<Aes256Gcm>::from_slice(&key)
-        );
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
         Self { cipher }
     }
 
@@ -27,7 +25,9 @@ impl SMSEncryption {
         rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let ciphertext = self.cipher.encrypt(nonce, plaintext.as_bytes())
+        let ciphertext = self
+            .cipher
+            .encrypt(nonce, plaintext.as_bytes())
             .map_err(|e| anyhow!("Encryption failed: {}", e))?;
 
         let mut encrypted_data = nonce_bytes.to_vec();
@@ -37,7 +37,8 @@ impl SMSEncryption {
     }
 
     pub fn decrypt(&self, encrypted_data: &str) -> Result<String> {
-        let encrypted_bytes = general_purpose::STANDARD.decode(encrypted_data)
+        let encrypted_bytes = general_purpose::STANDARD
+            .decode(encrypted_data)
             .map_err(|e| anyhow!("Base64 decode failed: {}", e))?;
 
         if encrypted_bytes.len() < 12 {
@@ -47,10 +48,11 @@ impl SMSEncryption {
         let (nonce_bytes, ciphertext) = encrypted_bytes.split_at(12);
         let nonce = Nonce::from_slice(nonce_bytes);
 
-        let plaintext = self.cipher.decrypt(nonce, ciphertext)
+        let plaintext = self
+            .cipher
+            .decrypt(nonce, ciphertext)
             .map_err(|e| anyhow!("Decryption failed: {}", e))?;
 
-        String::from_utf8(plaintext)
-            .map_err(|e| anyhow!("UTF-8 conversion failed: {}", e))
+        String::from_utf8(plaintext).map_err(|e| anyhow!("UTF-8 conversion failed: {}", e))
     }
 }
