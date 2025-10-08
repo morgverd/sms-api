@@ -2,6 +2,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use tokio::time::Instant;
 use tracing::log::debug;
+use anyhow::Result;
 use crate::sms::types::SMSIncomingMessage;
 use crate::types::SMSMessage;
 
@@ -16,12 +17,12 @@ pub struct SMSMultipartHeader {
 
 #[derive(Debug, Clone)]
 pub struct SMSMultipartMessages {
-    pub total_size: usize,
-    pub last_updated: Instant,
-    pub first_message: Option<SMSIncomingMessage>,
-    pub text_len: usize,
-    pub text_parts: Vec<Option<String>>,
-    pub received_count: usize,
+    total_size: usize,
+    last_updated: Instant,
+    first_message: Option<SMSIncomingMessage>,
+    text_len: usize,
+    text_parts: Vec<Option<String>>,
+    received_count: usize,
 }
 impl SMSMultipartMessages {
     pub fn with_capacity(total_size: usize) -> Self {
@@ -38,13 +39,14 @@ impl SMSMultipartMessages {
     pub fn add_message(&mut self, message: SMSIncomingMessage, index: u8) -> bool {
         self.last_updated = Instant::now();
 
-        // Make multipart index 0-based.
         let idx = (index as usize).saturating_sub(1);
         if idx < self.text_parts.len() && self.text_parts[idx].is_none() {
 
             // Remove message separator char.
             let content = if message.content.ends_with("@") {
-                message.content.trim_end_matches("@").to_string()
+                message.content.strip_suffix("@")
+                    .unwrap_or(&message.content)
+                    .to_string()
             } else {
                 message.content.to_string()
             };
@@ -62,7 +64,7 @@ impl SMSMultipartMessages {
         self.received_count >= self.total_size
     }
 
-    pub fn compile(&self) -> anyhow::Result<SMSMessage> {
+    pub fn compile(&self) -> Result<SMSMessage> {
         let first_message = match &self.first_message {
             Some(first_message) => first_message,
             None => return Err(anyhow!("Missing required first message to convert into SMSMessage!"))
@@ -81,7 +83,77 @@ impl SMSMultipartMessages {
         Ok(message)
     }
 
+    #[inline]
     pub fn is_stalled(&self) -> bool {
         self.last_updated.elapsed() > MULTIPART_MESSAGES_STALLED_DURATION
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const TEST_NUMBER: &str = "+123456789";
+
+    fn create_test_message(content: &str) -> SMSIncomingMessage {
+        SMSIncomingMessage {
+            phone_number: TEST_NUMBER.to_string(),
+            user_data_header: None,
+            content: content.to_string()
+        }
+    }
+
+    #[test]
+    fn test_multipart_assembly() {
+        let mut multipart_ordered = SMSMultipartMessages::with_capacity(3);
+        assert!(!multipart_ordered.add_message(create_test_message("First @"), 1));
+        assert!(!multipart_ordered.add_message(create_test_message("Second @"), 2));
+        assert!(multipart_ordered.add_message(create_test_message("Third"), 3));
+
+        let result = multipart_ordered.compile().unwrap();
+        assert_eq!(result.message_content, "First Second Third");
+
+        let mut multipart_random = SMSMultipartMessages::with_capacity(5);
+        assert!(!multipart_random.add_message(create_test_message("Part3 @"), 3));
+        assert!(!multipart_random.add_message(create_test_message("Part5!"), 5));
+        assert!(!multipart_random.add_message(create_test_message("Part1 @"), 1));
+        assert!(!multipart_random.add_message(create_test_message("Part4 @"), 4));
+        assert!(multipart_random.add_message(create_test_message("Part2 @"), 2));
+
+        let result = multipart_random.compile().unwrap();
+        assert_eq!(result.message_content, "Part1 Part2 Part3 Part4 Part5!");
+    }
+
+    #[test]
+    fn test_special_characters() {
+        let mut multipart = SMSMultipartMessages::with_capacity(8);
+
+        multipart.add_message(create_test_message("Hello\nWorld\t@"), 1);
+        multipart.add_message(create_test_message("🚀🌟😀 emojis @"), 2);
+        multipart.add_message(create_test_message("\"quotes\" & 'apostrophes' @"), 3);
+        multipart.add_message(create_test_message("<html>&nbsp;</html> @"), 4);
+        multipart.add_message(create_test_message("Ñoño José María @"), 5);
+        multipart.add_message(create_test_message("Здравствуйте @"), 6);
+        multipart.add_message(create_test_message("你好世界 @"), 7);
+        multipart.add_message(create_test_message("Math: ∑∏∫√ End"), 8);
+
+        let result = multipart.compile().unwrap();
+        assert_eq!(
+            result.message_content,
+            "Hello\nWorld\t🚀🌟😀 emojis \"quotes\" & 'apostrophes' <html>&nbsp;</html> Ñoño José María Здравствуйте 你好世界 Math: ∑∏∫√ End"
+        );
+
+        let mut multipart2 = SMSMultipartMessages::with_capacity(3);
+        assert_eq!(multipart2.text_len, 0);
+
+        multipart2.add_message(create_test_message("😀😀😀@"), 1);
+        let emoji_len = "😀😀😀".len();
+        assert_eq!(multipart2.text_len, emoji_len);
+
+        multipart2.add_message(create_test_message("ABC@"), 2);
+        assert_eq!(multipart2.text_len, emoji_len + 3);
+
+        multipart2.add_message(create_test_message("世界"), 3);
+        let chinese_len = "世界".len();
+        assert_eq!(multipart2.text_len, emoji_len + 3 + chinese_len);
     }
 }

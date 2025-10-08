@@ -5,6 +5,7 @@ mod database;
 mod encryption;
 mod multipart;
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use anyhow::{bail, Result};
@@ -96,13 +97,15 @@ impl SMSManager {
 #[derive(Clone)]
 pub struct SMSReceiver {
     manager: SMSManager,
-    multipart: Arc<Mutex<HashMap<u8, SMSMultipartMessages>>>
+    multipart: Arc<Mutex<HashMap<(Arc<str>, u8), SMSMultipartMessages>>>
 }
 impl SMSReceiver {
     pub fn new(manager: SMSManager) -> Self {
         Self { manager, multipart: Arc::new(Mutex::new(HashMap::new())) }
     }
 
+    /// Store + emit incoming SMS message.
+    /// Option for multipart messages, as individual parts aren't stored only compiled result.
     pub async fn handle_incoming_sms(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<i64>> {
 
         // Handle incoming message, discarding if it's a multipart message and not final.
@@ -124,6 +127,7 @@ impl SMSReceiver {
         Some(row_id_result)
     }
 
+    /// Store + emit delivery report.
     pub async fn handle_delivery_report(&self, report: SMSIncomingDeliveryReport) -> Result<i64> {
 
         // Find the target message from phone number and message reference. This will be fine unless we send 255
@@ -151,20 +155,25 @@ impl SMSReceiver {
         Ok(message_id)
     }
 
+    /// **Call only from cleanup task!**
+    /// Holds multipart lock and removes all stalled receivers.
     pub async fn cleanup_stalled_multipart(&mut self) {
         debug!("Cleaning up stalled multipart messages.");
         let mut guard = self.multipart.lock().await;
-        guard.retain(|message_reference, messages| {
+        guard.retain(|(phone_number, message_reference), messages| {
 
             // Show a warning whenever a message group has stalled.
             let stalled = messages.is_stalled();
             if stalled {
-                warn!("Removing received multipart message #{} has stalled!", message_reference);
+                warn!("Removing received multipart message '{}' (#{}) has stalled!", phone_number, message_reference);
             }
-            stalled
+            !stalled
         });
     }
 
+    /// Get the final SMSMessage to broadcast/store, which is either just the
+    /// incoming message directly converted or the result of a multipart message compile etc.
+    /// Optional result is from the multipart message compile.
     async fn get_incoming_sms_message(&mut self, incoming_message: SMSIncomingMessage) -> Option<Result<SMSMessage>> {
 
         // Decode the message data header to get multipart header.
@@ -174,16 +183,41 @@ impl SMSReceiver {
             None => return Some(Ok(SMSMessage::from(&incoming_message)))
         };
 
-        // Get multipart messages set for message reference.
-        let mut guard = self.multipart.lock().await;
-        let multipart = guard.entry(header.message_reference)
-            .or_insert_with(|| SMSMultipartMessages::with_capacity(header.total as usize));
+        let phone_number: Arc<str> = incoming_message.phone_number.clone().into();
+        let message_ref = header.message_reference;
 
-        // Add partial message, if it's full then return the compiled message.
-        // Otherwise, nothing is returned as there is no message to store.
-        match multipart.add_message(incoming_message, header.index) {
-            true => Some(multipart.compile()),
-            false => None
+        // The multipart key is (phone_number, message_ref), meaning that even if the
+        // message reference overflows delivery could still work (for unique numbers).
+        let mut guard = self.multipart.lock().await;
+        match guard.entry((phone_number.clone(), message_ref)) {
+            Entry::Vacant(entry) => {
+                // New multipart message reference.
+
+                debug!("Creating new multipart handler for #{} (expecting {} parts)", message_ref, header.total);
+                let mut mulipart = SMSMultipartMessages::with_capacity(header.total as usize);
+
+                if mulipart.add_message(incoming_message, header.index) {
+                    warn!("Got a 1 part multipart message from {} (#{}), that's odd!", phone_number.to_string(), message_ref);
+
+                    // Compile message, and don't insert into map since it's complete.
+                    Some(mulipart.compile())
+                } else {
+                    entry.insert(mulipart);
+                    None
+                }
+            },
+            Entry::Occupied(mut entry) => {
+
+                // Add message part.
+                if entry.get_mut().add_message(incoming_message, header.index) {
+                    debug!("Multipart message {} complete, compiling {} parts!", message_ref, header.total);
+
+                    let complete = entry.remove();
+                    return Some(complete.compile())
+                }
+
+                None
+            }
         }
     }
 }

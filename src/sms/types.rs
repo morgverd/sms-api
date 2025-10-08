@@ -49,7 +49,6 @@ impl From<&SMSIncomingMessage> for SMSMessage {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SMSIncomingDeliveryReport {
     pub phone_number: String,
