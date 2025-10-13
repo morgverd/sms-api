@@ -283,7 +283,7 @@ http_post_handler!(
     bool,
     |state, payload| {
         let filter = EnvFilter::from_str(&payload.level)?;
-        tracing::log::info!("Setting log level to {} via API.", filter);
+        tracing::log::info!("Setting log level to {filter} via API");
 
         state
             .tracing_reload

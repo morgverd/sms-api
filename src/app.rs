@@ -81,11 +81,11 @@ impl AppHandles {
             .tasks
             .into_iter()
             .map(|(name, handle)| {
-                info!("Starting task: {}.", name);
+                info!("Starting task: {name}");
                 Box::pin(async move {
                     match handle.await {
-                        Ok(()) => info!("{} task completed!", name),
-                        Err(e) => error!("{} task failed: {:?}!", name, e),
+                        Ok(()) => info!("{name} task completed!"),
+                        Err(e) => error!("{name} task failed: {e:?}!"),
                     }
                 })
             })
@@ -133,15 +133,15 @@ impl AppHandles {
         match message {
             ModemIncomingMessage::IncomingSMS(incoming) => {
                 match receiver.handle_incoming_sms(incoming).await {
-                    Some(Ok(row_id)) => debug!("Stored SMS message #{}", row_id),
-                    Some(Err(e)) => error!("Failed to store SMS: {:?}", e),
+                    Some(Ok(row_id)) => debug!("Stored SMS message #{row_id}"),
+                    Some(Err(e)) => error!("Failed to store SMS: {e:?}"),
                     None => debug!("SMS is part of multipart message, not storing yet"),
                 }
             }
             ModemIncomingMessage::DeliveryReport(report) => {
                 match receiver.handle_delivery_report(report).await {
-                    Ok(message_id) => debug!("Updated delivery status for message #{}", message_id),
-                    Err(e) => warn!("Failed to update delivery report: {:?}", e),
+                    Ok(message_id) => debug!("Updated delivery status for message #{message_id}"),
+                    Err(e) => warn!("Failed to update delivery report: {e:?}"),
                 }
             }
             ModemIncomingMessage::ModemStatusUpdate { previous, current } => {
@@ -158,7 +158,7 @@ impl AppHandles {
                         .await;
                 }
             }
-            _ => warn!("Unhandled message type: {:?}", message),
+            _ => warn!("Unhandled message type: {message:?}"),
         }
     }
 
@@ -190,7 +190,7 @@ impl AppHandles {
                 Some(_tls_config) => {
                     #[cfg(any(feature = "tls-rustls", feature = "tls-native"))]
                     {
-                        info!("Starting HTTPS (secure) server on {}", address);
+                        info!("Starting HTTPS (secure) server on {address}");
 
                         #[cfg(feature = "tls-rustls")]
                         {
@@ -229,7 +229,7 @@ impl AppHandles {
                     ))
                 }
                 None => {
-                    info!("Starting HTTP (insecure) server on {}", address);
+                    info!("Starting HTTP (insecure) server on {address}");
                     axum_server::bind(address)
                         .serve(app.into_make_service())
                         .await
@@ -238,7 +238,7 @@ impl AppHandles {
             };
 
             if let Err(e) = result {
-                error!("Server error: {:?}", e);
+                error!("Server error: {e:?}");
             }
         });
 

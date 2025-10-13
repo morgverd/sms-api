@@ -21,7 +21,7 @@ impl ModemEventHandlers {
     pub async fn command_sender(&self, request: &ModemRequest) -> Result<CommandState> {
         match request {
             ModemRequest::SendSMS { len, .. } => {
-                let command = format!("AT+CMGS={}\r\n", len);
+                let command = format!("AT+CMGS={len}\r\n");
                 self.write(command.as_bytes()).await?;
                 return Ok(CommandState::WaitingForPrompt);
             }
@@ -38,7 +38,7 @@ impl ModemEventHandlers {
 
     pub async fn prompt_handler(&self, request: &ModemRequest) -> Result<Option<CommandState>> {
         if let ModemRequest::SendSMS { len, pdu } = request {
-            debug!("Sending PDU: len = {}", len);
+            debug!("Sending PDU: len = {len}");
 
             // Push CTRL+Z to end of PDU to submit.
             let encoded = pdu.as_bytes();
@@ -100,7 +100,7 @@ impl ModemEventHandlers {
                 Ok(None)
             }
             UnsolicitedMessageType::GNSSPositionReport => Ok(Some(
-                ModemIncomingMessage::GNSSPositionReport(parse_cgnsinf_response(&content, true)?),
+                ModemIncomingMessage::GNSSPositionReport(parse_cgnsinf_response(content, true)?),
             )),
         }
     }
@@ -110,28 +110,28 @@ impl ModemEventHandlers {
         request: &ModemRequest,
         response: &String,
     ) -> Result<ModemResponse> {
-        debug!("Command response: {:?} -> {:?}", request, response);
+        debug!("Command response: {request:?} -> {response:?}");
         if !response.trim_end().ends_with("OK") {
             return Err(anyhow!("Modem response does not end with OK"));
         }
 
         match request {
             ModemRequest::SendSMS { .. } => {
-                Ok(ModemResponse::SendResult(parse_cmgs_result(&response)?))
+                Ok(ModemResponse::SendResult(parse_cmgs_result(response)?))
             }
             ModemRequest::GetNetworkStatus => {
-                let (registration, technology) = parse_creg_response(&response)?;
+                let (registration, technology) = parse_creg_response(response)?;
                 Ok(ModemResponse::NetworkStatus {
                     registration,
                     technology,
                 })
             }
             ModemRequest::GetSignalStrength => {
-                let (rssi, ber) = parse_csq_response(&response)?;
+                let (rssi, ber) = parse_csq_response(response)?;
                 Ok(ModemResponse::SignalStrength { rssi, ber })
             }
             ModemRequest::GetNetworkOperator => {
-                let (status, format, operator) = parse_cops_response(&response)?;
+                let (status, format, operator) = parse_cops_response(response)?;
                 Ok(ModemResponse::NetworkOperator {
                     status,
                     format,
@@ -139,10 +139,10 @@ impl ModemEventHandlers {
                 })
             }
             ModemRequest::GetServiceProvider => Ok(ModemResponse::ServiceProvider(
-                parse_cspn_response(&response)?,
+                parse_cspn_response(response)?,
             )),
             ModemRequest::GetBatteryLevel => {
-                let (status, charge, voltage) = parse_cbc_response(&response)?;
+                let (status, charge, voltage) = parse_cbc_response(response)?;
                 Ok(ModemResponse::BatteryLevel {
                     status,
                     charge,
@@ -150,10 +150,10 @@ impl ModemEventHandlers {
                 })
             }
             ModemRequest::GetGNSSStatus => Ok(ModemResponse::GNSSStatus(
-                parse_cgpsstatus_response(&response)?,
+                parse_cgpsstatus_response(response)?,
             )),
             ModemRequest::GetGNSSLocation => Ok(ModemResponse::GNSSLocation(
-                parse_cgnsinf_response(&response, false)?,
+                parse_cgnsinf_response(response, false)?,
             )),
         }
     }

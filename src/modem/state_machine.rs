@@ -75,7 +75,7 @@ impl ModemStateMachine {
     }
 
     pub async fn start_command(&mut self, cmd: OutgoingCommand) -> Result<()> {
-        debug!("Starting command: {:?}", cmd);
+        debug!("Starting command: {cmd:?}");
 
         let command_state = self.handlers.command_sender(&cmd.request).await?;
         let execution = CommandExecution::new(cmd, command_state);
@@ -115,10 +115,7 @@ impl ModemStateMachine {
         main_tx: &mpsc::UnboundedSender<ModemIncomingMessage>,
         line_event: LineEvent,
     ) -> Result<()> {
-        debug!(
-            "ModemStateMachine transition_state: LineEvent: {:?}",
-            line_event
-        );
+        debug!("ModemStateMachine transition_state: LineEvent: {line_event:?}");
 
         let modem_event = match line_event {
             LineEvent::Line(content) => self.classify_line(&content),
@@ -172,10 +169,7 @@ impl ModemStateMachine {
                 },
             ) => {
                 let sequence = execution.context.sequence;
-                debug!(
-                    "Unsolicited message header received during command {}: {:?}",
-                    sequence, header
-                );
+                debug!("Unsolicited message header received during command {sequence}: {header:?}");
 
                 if !message_type.has_next_line() {
                     self.handle_unsolicited(main_tx, &message_type, &header)
@@ -195,10 +189,7 @@ impl ModemStateMachine {
                     header,
                 },
             ) => {
-                debug!(
-                    "Unsolicited message header received while idle: {:?}",
-                    header
-                );
+                debug!("Unsolicited message header received while idle: {header:?}");
 
                 if !message_type.has_next_line() {
                     self.handle_unsolicited(main_tx, &message_type, &header)
@@ -219,21 +210,18 @@ impl ModemStateMachine {
 
             // Ignore unexpected events when idle
             (StateMachineState::Idle, ModemEvent::Prompt(content)) => {
-                warn!("Received unexpected prompt when idle: {:?}", content);
+                warn!("Received unexpected prompt when idle: {content:?}");
                 Ok(StateMachineState::Idle)
             }
             (
                 StateMachineState::Idle,
                 ModemEvent::CommandResponse(content) | ModemEvent::Data(content),
             ) => {
-                warn!("Received unexpected response when idle: {:?}", content);
+                warn!("Received unexpected response when idle: {content:?}");
                 Ok(StateMachineState::Idle)
             }
             (read_state, modem_event) => {
-                error!(
-                    "Got to an invalid state! Read: {:?}, Event: {:?}",
-                    read_state, modem_event
-                );
+                error!("Got to an invalid state! Read: {read_state:?}, Event: {modem_event:?}");
                 bail!(
                     "Invalid state transition: {:?} with event {:?}",
                     read_state,
@@ -250,7 +238,7 @@ impl ModemStateMachine {
     ) -> Result<StateMachineState> {
         match event {
             ModemEvent::Prompt(content) => {
-                debug!("Processing prompt: {:?}", content);
+                debug!("Processing prompt: {content:?}");
 
                 match self
                     .handlers
@@ -282,7 +270,7 @@ impl ModemStateMachine {
             }
 
             ModemEvent::CommandResponse(content) | ModemEvent::Data(content) => {
-                debug!("Processing command response/data: {:?}", content);
+                debug!("Processing command response/data: {content:?}");
                 execution.context.response_buffer.push_str(&content);
                 execution.context.response_buffer.push('\n');
 
@@ -335,7 +323,7 @@ impl ModemStateMachine {
                     let _ = main_tx.send(message);
                 }
             }
-            Err(e) => error!("Couldn't handle incoming SMS message with error: {:?}", e),
+            Err(e) => error!("Couldn't handle incoming SMS message with error: {e:?}"),
         }
     }
 
@@ -351,17 +339,16 @@ impl ModemStateMachine {
         }
 
         // Command completion indicators - only relevant when executing commands.
-        if matches!(self.state, StateMachineState::Command(_)) {
-            if trimmed == "OK"
+        if matches!(self.state, StateMachineState::Command(_))
+            && (trimmed == "OK"
                 || trimmed == "ERROR"
                 || trimmed.starts_with("+CME ERROR:")
                 || trimmed.starts_with("+CMS ERROR:")
                 || trimmed.starts_with("+CMGS:")
                 || trimmed.starts_with("+CSQ:")
-                || trimmed.starts_with("+CREG:")
-            {
-                return ModemEvent::CommandResponse(trimmed.to_string());
-            }
+                || trimmed.starts_with("+CREG:"))
+        {
+            return ModemEvent::CommandResponse(trimmed.to_string());
         }
 
         ModemEvent::Data(trimmed.to_string())

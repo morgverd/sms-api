@@ -556,8 +556,7 @@ mod tests {
         assert_eq!(charge, 50, "Expected battery charge 50%");
         assert!(
             (voltage - 3.8).abs() < f32::EPSILON,
-            "Expected voltage 3.8V, got {}",
-            voltage
+            "Expected voltage 3.8V, got {voltage}"
         );
 
         let response = "+CBC: 1,100,4123\r\nOK\r\n";
@@ -566,8 +565,7 @@ mod tests {
         assert_eq!(charge, 100, "Expected battery charge 100%");
         assert!(
             (voltage - 4.123).abs() < f32::EPSILON,
-            "Expected voltage 4.123V, got {}",
-            voltage
+            "Expected voltage 4.123V, got {voltage}"
         );
 
         // Test boundary values
@@ -577,8 +575,7 @@ mod tests {
         assert_eq!(charge, 0, "Expected battery charge 0%");
         assert!(
             (voltage - 0.0).abs() < f32::EPSILON,
-            "Expected voltage 0.0V, got {}",
-            voltage
+            "Expected voltage 0.0V, got {voltage}"
         );
 
         let response = "+CBC: 2,75,4200\r\n";
@@ -587,8 +584,7 @@ mod tests {
         assert_eq!(charge, 75, "Expected battery charge 75%");
         assert!(
             (voltage - 4.2).abs() < f32::EPSILON,
-            "Expected voltage 4.2V, got {}",
-            voltage
+            "Expected voltage 4.2V, got {voltage}"
         );
 
         // Test voltage conversion precision
@@ -596,8 +592,7 @@ mod tests {
         let (_, _, voltage) = parse_cbc_response(response).unwrap();
         assert!(
             (voltage - 3.456).abs() < 0.001,
-            "Expected voltage 3.456V with proper precision, got {}",
-            voltage
+            "Expected voltage 3.456V with proper precision, got {voltage}"
         );
 
         // Failure cases
@@ -652,7 +647,7 @@ mod tests {
         );
         let status = result.unwrap();
         assert_eq!(
-            format!("{:?}", status),
+            format!("{status:?}"),
             "Fix3D",
             "Expected Location3DFix status variant"
         );
@@ -710,7 +705,7 @@ mod tests {
         );
         let location = result.unwrap();
         assert!(
-            format!("{:?}", location).contains("GNSSLocation"),
+            format!("{location:?}").contains("GNSSLocation"),
             "Expected GNSSLocation object"
         );
 

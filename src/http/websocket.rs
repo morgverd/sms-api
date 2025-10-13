@@ -25,10 +25,7 @@ impl WebSocketManager {
         let message = match serde_json::to_string(&event) {
             Ok(msg) => axum::extract::ws::Utf8Bytes::from(msg),
             Err(e) => {
-                error!(
-                    "Couldn't broadcast event '{:?}' due to serialization error: {} ",
-                    event, e
-                );
+                error!("Couldn't broadcast event '{event:?}' due to serialization error: {e} ");
                 return 0;
             }
         };
@@ -71,7 +68,7 @@ impl WebSocketManager {
         };
 
         loop {
-            let id = Uuid::new_v4().to_string();
+             let id = Uuid::new_v4().to_string();
             let mut connections = self.connections.write().await;
 
             if !connections.contains_key(&id) {
@@ -94,7 +91,7 @@ pub async fn handle_websocket(connection: WebSocketConnection, manager: WebSocke
 
     // Add connection.
     let connection_id = manager.add_connection(tx, connection.1).await;
-    debug!("WebSocket connection established: {}", connection_id);
+    debug!("WebSocket connection established: {connection_id}");
 
     // Writer task.
     let connection_id_for_tx = connection_id.clone();
@@ -132,21 +129,20 @@ pub async fn handle_websocket(connection: WebSocketConnection, manager: WebSocke
     let rx_task = tokio::spawn(async move {
         while let Some(msg) = receiver.next().await {
             match msg {
-                Ok(axum::extract::ws::Message::Text(text)) => debug!(
-                    "Received WebSocket message from {}: {:?}",
-                    connection_id, text
-                ),
+                Ok(axum::extract::ws::Message::Text(text)) => {
+                    debug!("Received WebSocket message from {connection_id}: {text:?}")
+                }
                 Ok(axum::extract::ws::Message::Ping(ping)) => {
                     if ping_tx.send(ping).is_err() {
                         break;
                     }
                 }
                 Ok(axum::extract::ws::Message::Close(_)) => {
-                    debug!("WebSocket connection closed: {}", connection_id);
+                    debug!("WebSocket connection closed: {connection_id}");
                     break;
                 }
                 Err(e) => {
-                    error!("WebSocket error for {}: {}", connection_id, e);
+                    error!("WebSocket error for {connection_id}: {e}");
                     break;
                 }
                 _ => {}
@@ -161,5 +157,5 @@ pub async fn handle_websocket(connection: WebSocketConnection, manager: WebSocke
 
     // Remove connection after either task finishes.
     manager.remove_connection(&connection_id_for_tx).await;
-    debug!("WebSocket connection cleaned up: {}", connection_id_for_tx);
+    debug!("WebSocket connection cleaned up: {connection_id_for_tx}");
 }

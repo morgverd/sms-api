@@ -149,7 +149,7 @@ impl EventBroadcaster {
 
     #[inline]
     pub async fn broadcast(&self, event: Event) {
-        debug!("Broadcasting event: {:?}", event);
+        debug!("Broadcasting event: {event:?}");
         if let Some(webhooks) = &self.webhooks {
             webhooks.send(event.clone());
         }

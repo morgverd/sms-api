@@ -79,10 +79,8 @@ impl SMSMultipartMessages {
         };
 
         let mut content = String::with_capacity(self.text_len);
-        for msg_opt in &self.text_parts {
-            if let Some(text) = msg_opt {
-                content.push_str(&text);
-            }
+        for text in self.text_parts.iter().flatten() {
+            content.push_str(text);
         }
 
         let mut message = SMSMessage::from(first_message);

@@ -19,14 +19,14 @@ fn build_pagination_query(
     reverse: bool,
 ) -> String {
     let order_direction = if reverse { "ASC" } else { "DESC" };
-    let mut query = format!("{} ORDER BY {} {}", base_query, order_by, order_direction);
+    let mut query = format!("{base_query} ORDER BY {order_by} {order_direction}");
 
     if let Some(limit_val) = limit {
-        query.push_str(&format!(" LIMIT {}", limit_val));
+        query.push_str(&format!(" LIMIT {limit_val}"));
     }
 
     if let Some(offset_val) = offset {
-        query.push_str(&format!(" OFFSET {}", offset_val));
+        query.push_str(&format!(" OFFSET {offset_val}"));
     }
 
     query
@@ -90,7 +90,7 @@ impl SMSDatabase {
     }
 
     pub async fn insert_message(&self, message: &SMSMessage, is_final: bool) -> Result<i64> {
-        let encrypted_content = self.encryption.encrypt(&*message.message_content)?;
+        let encrypted_content = self.encryption.encrypt(&message.message_content)?;
         let result = if is_final {
             sqlx::query(
                 "INSERT INTO messages (phone_number, message_content, message_reference, is_outgoing, status, completed_at) VALUES (?, ?, ?, ?, ?, unixepoch())"

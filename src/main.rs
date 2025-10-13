@@ -83,7 +83,7 @@ fn init_tracing() -> TracingReloadHandle {
     let registry = registry.with(sentry_tracing::layer());
 
     registry.init();
-    info!("build version: {}.", VERSION);
+    info!("build version: {VERSION}");
 
     reload_handle
 }

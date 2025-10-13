@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail, Result};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::oneshot;
-use tracing::log::{debug, error};
+use tracing::log::debug;
 
 static COMMAND_SEQUENCE: AtomicU32 = AtomicU32::new(1);
 
@@ -96,10 +96,6 @@ impl OutgoingCommand {
                 )),
             }
         } else {
-            error!(
-                "Attempted to respond to command #{} but response channel was already used",
-                self.sequence
-            );
             bail!(
                 "Attempted to respond to command #{} but response channel was already used",
                 self.sequence

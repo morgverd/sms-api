@@ -73,6 +73,6 @@ where
 {
     let value = u8::deserialize(deserializer)?;
     MessageStatus::from_u8(value).ok_or_else(|| {
-        serde::de::Error::custom(format!("Invalid MessageStatus value: 0x{:02x}", value))
+        serde::de::Error::custom(format!("Invalid MessageStatus value: 0x{value:02x}"))
     })
 }

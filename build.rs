@@ -2,8 +2,8 @@ fn main() {
     feature_conflicts();
 
     let version = get_version();
-    println!("cargo:rustc-env=VERSION={}", version);
-    println!("cargo:warning=Feature tagged version: {}", version);
+    println!("cargo:rustc-env=VERSION={version}");
+    println!("cargo:warning=Feature tagged version: {version}");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
@@ -26,7 +26,7 @@ fn feature_conflicts() {
     // Sentry
     let sentry = std::env::var("CARGO_FEATURE_SENTRY").is_ok();
     if sentry && !tls_rustls && !tls_native {
-        panic!("The 'sentry' feature requires at least one TLS backend. Enable either 'tls-rustls' or 'tls-native' feature.");
+        panic!("The 'sentry' feature requires at least one TLS backend. Enable either 'tls-rustls' or 'tls-native' feature");
     }
 
     // Database
@@ -36,16 +36,19 @@ fn feature_conflicts() {
     }
 }
 
+/// Creates a version string from the package version, with all
+/// optional features included in the build metadata suffix.
 fn get_version() -> String {
     let mut suffixes = Vec::new();
     let feature_names = vec![
-        ("HTTP_SERVER", "http"),
-        ("SENTRY", "sentry"),
-        ("TLS_NATIVE", "native-tls"),
-        ("TLS_RUSTLS", "rustls"),
+        ("GPIO", "g"),
+        ("HTTP_SERVER", "h"),
+        ("SENTRY", "s"),
+        ("TLS_NATIVE", "tn"),
+        ("TLS_RUSTLS", "tr")
     ];
     for (feature, name) in feature_names {
-        if std::env::var(format!("CARGO_FEATURE_{}", feature)).is_ok() {
+        if std::env::var(format!("CARGO_FEATURE_{feature}")).is_ok() {
             suffixes.push(name);
         }
     }
@@ -54,7 +57,7 @@ fn get_version() -> String {
     let full_version = if suffixes.is_empty() {
         version.to_string()
     } else {
-        format!("{}+{}", version, suffixes.join("."))
+        format!("{}+{}", version, suffixes.join(""))
     };
 
     full_version

@@ -34,10 +34,10 @@ impl AppConfig {
         let config_path = config_filepath.unwrap_or_else(|| PathBuf::from("config.toml"));
 
         let config_content = fs::read_to_string(&config_path)
-            .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+            .with_context(|| format!("Failed to read config file: {config_path:?}"))?;
 
         let config: AppConfig = toml::from_str(&config_content)
-            .with_context(|| format!("Failed to parse TOML config file: {:?}", config_path))?;
+            .with_context(|| format!("Failed to parse TOML config file: {config_path:?}"))?;
 
         Ok(config)
     }
@@ -57,12 +57,6 @@ pub struct ModemConfig {
     #[serde(default = "default_gnss_report_interval")]
     pub gnss_report_interval: u32,
 
-    #[serde(default = "default_false")]
-    pub gpio_power_pin: bool,
-
-    #[serde(default = "default_true")]
-    pub gpio_repower: bool,
-
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
     pub cmd_channel_buffer_size: usize,
@@ -72,6 +66,19 @@ pub struct ModemConfig {
 
     #[serde(default = "default_modem_read_buffer_size")]
     pub line_buffer_size: usize,
+
+    #[serde(default = "default_false")]
+    #[cfg(feature = "gpio")]
+    pub gpio_enabled: bool,
+
+    #[serde(default = "default_gpio_power_pin")]
+    #[cfg(feature = "gpio")]
+    pub gpio_power_pin: u8,
+
+    #[serde(default = "default_true")]
+    #[cfg(feature = "gpio")]
+    pub gpio_repower: bool,
+
 }
 impl Default for ModemConfig {
     fn default() -> Self {
@@ -80,11 +87,18 @@ impl Default for ModemConfig {
             baud_rate: default_modem_baud(),
             gnss_enabled: default_false(),
             gnss_report_interval: default_gnss_report_interval(),
-            gpio_power_pin: default_false(),
-            gpio_repower: default_true(),
             cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
             read_buffer_size: default_modem_read_buffer_size(),
             line_buffer_size: default_modem_read_buffer_size(),
+
+            #[cfg(feature = "gpio")]
+            gpio_enabled: default_false(),
+
+            #[cfg(feature = "gpio")]
+            gpio_power_pin: default_gpio_power_pin(),
+
+            #[cfg(feature = "gpio")]
+            gpio_repower: default_true()
         }
     }
 }
@@ -228,6 +242,12 @@ fn default_true() -> bool {
     true
 }
 
+/// Based on the hardware I am using, https://files.waveshare.com/upload/4/4a/GSM_GPRS_GNSS_HAT_User_Manual_EN.pdf
+#[cfg(feature = "gpio")]
+fn default_gpio_power_pin() -> u8 {
+    4
+}
+
 #[cfg(feature = "http-server")]
 fn default_http_address() -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000)
@@ -239,7 +259,7 @@ where
 {
     let s = String::deserialize(deserializer)?;
     let decoded = general_purpose::STANDARD.decode(&s).map_err(|e| {
-        serde::de::Error::custom(format!("Failed to decode base64 encryption key: {}", e))
+        serde::de::Error::custom(format!("Failed to decode base64 encryption key: {e}"))
     })?;
 
     if decoded.len() != 32 {

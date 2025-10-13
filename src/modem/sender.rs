@@ -13,7 +13,7 @@ use tracing::log::{debug, error, warn};
 const SEND_TIMEOUT: Duration = Duration::from_secs(90);
 
 fn create_sms_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>> {
-    let requests = gsm_encoding::GsmMessageData::encode_message(&*message.content)
+    let requests = gsm_encoding::GsmMessageData::encode_message(&message.content)
         .into_iter()
         .map(|data| {
             let pdu = pdu::SubmitPdu {
@@ -30,7 +30,7 @@ fn create_sms_requests(message: &SMSOutgoingMessage) -> Result<Vec<ModemRequest>
                 destination: message.phone_number.clone(),
                 dcs: pdu::DataCodingScheme::Standard {
                     compressed: false,
-                    class: message.flash.then(|| pdu::MessageClass::Silent),
+                    class: message.flash.then_some(pdu::MessageClass::Silent),
                     encoding: data.encoding,
                 },
                 validity_period: if message.flash {
@@ -70,7 +70,7 @@ impl ModemSender {
     ) -> Result<(bool, Option<ModemResponse>)> {
         // Send each send request for message, returning the last message.
         let mut last_response_opt = None;
-        for request in create_sms_requests(&message)? {
+        for request in create_sms_requests(message)? {
             let response = self.send_request(request, message.timeout).await?;
 
             // If one of the message parts return an error response, then return immediately
@@ -94,16 +94,16 @@ impl ModemSender {
         let sequence = next_command_sequence();
         let (tx, rx) = oneshot::channel();
 
-        debug!("Queuing command sequence {}: {:?}", sequence, request);
+        debug!("Queuing command sequence {sequence}: {request:?}");
         let cmd = OutgoingCommand::new(sequence, tx, request, timeout);
 
         // Try to queue without blocking.
         match self.command_tx.try_send(cmd) {
-            Ok(_) => debug!("Command sequence {} successfully queued", sequence),
+            Ok(_) => debug!("Command sequence {sequence} successfully queued"),
             Err(mpsc::error::TrySendError::Full(_)) => {
-                bail!("Command queue is full! The modem may be overwhelmed.")
+                bail!("Command queue is full! The modem may be overwhelmed")
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => bail!("Command queue is closed."),
+            Err(mpsc::error::TrySendError::Closed(_)) => bail!("Command queue is closed"),
         }
 
         // Wait for response with timeout.
@@ -112,27 +112,18 @@ impl ModemSender {
             .unwrap_or(SEND_TIMEOUT);
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(response)) => {
-                debug!(
-                    "Command sequence {} completed with response: {:?}",
-                    sequence, response
-                );
+                debug!("Command sequence {sequence} completed with response: {response:?}");
                 Ok(response)
             }
             Ok(Err(e)) => {
-                error!(
-                    "Command sequence {} response channel error: {:?}",
-                    sequence, e
-                );
+                error!("Command sequence {sequence} response channel error: {e:?}");
                 Err(anyhow!(
                     "Command sequence {} response channel closed",
                     sequence
                 ))
             }
             Err(_) => {
-                warn!(
-                    "Command sequence {} timed out waiting for response",
-                    sequence
-                );
+                warn!("Command sequence {sequence} timed out waiting for response");
                 Err(anyhow!(
                     "Command sequence {} timed out waiting for response",
                     sequence

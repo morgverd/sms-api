@@ -45,7 +45,7 @@ impl ModemManager {
         let worker = ModemWorker::new(port, self.main_tx.clone(), self.config.clone())?;
         let handle = tokio::spawn(async move {
             if let Err(e) = worker.initialize_and_run(command_rx).await {
-                error!("ModemWorker error: {}", e);
+                error!("ModemWorker error: {e}");
             }
         });
 

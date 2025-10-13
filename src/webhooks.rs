@@ -15,10 +15,10 @@ use tracing::log::{debug, error, info, warn};
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBuilder> {
+fn client_builder(webhooks: &[ConfiguredWebhook]) -> Result<reqwest::ClientBuilder> {
     let builder = Client::builder();
     let certificate_paths: Vec<&PathBuf> = webhooks
-        .into_iter()
+        .iter()
         .filter_map(|w| w.certificate_path.as_ref())
         .collect();
 
@@ -55,7 +55,7 @@ fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBu
             builder = builder.add_root_certificate(certificate);
         }
 
-        return Ok(builder);
+        Ok(builder)
     }
 }
 
@@ -105,7 +105,7 @@ impl WebhookSender {
 
     pub fn send(&self, event: Event) {
         if let Err(e) = self.event_sender.send(event) {
-            error!("Failed to queue webhook job: {}", e);
+            error!("Failed to queue webhook job: {e}");
         }
     }
 }
@@ -143,10 +143,7 @@ impl WebhookWorker {
                 .enumerate()
                 .map(|(idx, webhook)| {
                     let headers = webhook.get_header_map().unwrap_or_else(|e| {
-                        error!(
-                            "Failed to create Webhook #{} HeaderMap with error: {}",
-                            idx, e
-                        );
+                        error!("Failed to create Webhook #{idx} HeaderMap with error: {e}");
                         None
                     });
 
@@ -185,14 +182,12 @@ impl WebhookWorker {
 
                 // TODO: Maybe re-queue failed webhooks?
                 async move {
-                    match Self::execute_webhook(webhook, &client, &event).await {
+                    match Self::execute_webhook(webhook, client, &event).await {
                         Ok(()) => debug!(
-                            "Webhook #{} for task #{} was sent successfully!",
-                            webhook_idx, task_idx
+                            "Webhook #{webhook_idx} for task #{task_idx} was sent successfully!"
                         ),
                         Err(e) => warn!(
-                            "Failed to send Webhook #{} for task #{} with error: {}",
-                            webhook_idx, task_idx, e
+                            "Failed to send Webhook #{webhook_idx} for task #{task_idx} with error: {e}"
                         ),
                     }
                 }

@@ -61,34 +61,29 @@ pub enum ModemResponse {
 impl Display for ModemResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModemResponse::SendResult(reference_id) => write!(f, "SMSResult: Ref {}", reference_id),
+            ModemResponse::SendResult(reference_id) => write!(f, "SMSResult: Ref {reference_id}"),
             ModemResponse::NetworkStatus {
                 registration,
                 technology,
-            } => write!(
-                f,
-                "NetworkStatus: Reg: {}, Tech: {}",
-                registration, technology
-            ),
+            } => write!(f, "NetworkStatus: Reg: {registration}, Tech: {technology}"),
             ModemResponse::SignalStrength { rssi, ber } => {
-                write!(f, "SignalStrength: {} dBm ({})", rssi, ber)
+                write!(f, "SignalStrength: {rssi} dBm ({ber})")
             }
             ModemResponse::NetworkOperator { operator, .. } => {
-                write!(f, "NetworkOperator: {}", operator)
+                write!(f, "NetworkOperator: {operator}")
             }
-            ModemResponse::ServiceProvider(operator) => write!(f, "ServiceProvider: {}", operator),
+            ModemResponse::ServiceProvider(operator) => write!(f, "ServiceProvider: {operator}"),
             ModemResponse::BatteryLevel {
                 status,
                 charge,
                 voltage,
             } => write!(
                 f,
-                "BatteryLevel. Status: {}, Charge: {}, Voltage: {}",
-                status, charge, voltage
+                "BatteryLevel. Status: {status}, Charge: {charge}, Voltage: {voltage}"
             ),
-            ModemResponse::GNSSStatus(status) => write!(f, "GNSS-Status: {:?}", status),
-            ModemResponse::GNSSLocation(location) => write!(f, "GNSS-Location: {:?}", location),
-            ModemResponse::Error(message) => write!(f, "Error: {}", message),
+            ModemResponse::GNSSStatus(status) => write!(f, "GNSS-Status: {status:?}"),
+            ModemResponse::GNSSLocation(location) => write!(f, "GNSS-Location: {location:?}"),
+            ModemResponse::Error(message) => write!(f, "Error: {message}"),
         }
     }
 }

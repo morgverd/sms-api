@@ -65,12 +65,7 @@ async fn auth_middleware(
         .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?
         .trim();
 
-    let token = if auth_str.starts_with("Bearer ") {
-        &auth_str[7..]
-    } else {
-        auth_str
-    };
-
+    let token = auth_str.strip_prefix("Bearer ").unwrap_or(auth_str).trim();
     if token != expected_token {
         return Err(axum::http::StatusCode::UNAUTHORIZED);
     }
