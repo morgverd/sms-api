@@ -2,55 +2,82 @@
 
 A powerful, self-hosted SMS gateway that enables you to send and receive text messages using your own cellular hardware. Built with security and flexibility in mind.
 
-## Features
-
-### 🔐 **Security First**
+### **Built-in Security**
 - Encryption by default for all message storage within database
 - Optional token-based authentication for HTTP API and WebSocket connections
 - TLS/HTTPS support for secure communications
 
-### 📡 **Multiple Integration Options**
-- **HTTP REST API** for programmatic SMS sending and database access
-- **Real-time WebSocket** connections for instant low-overhead event notifications
-- **HTTP webhooks** to push events to external systems
-- Comprehensive event filtering and routing
+### **Multiple Integration Options**
+- **HTTP REST API** for sending and reading SMS messages, modem requests and device info
+- **Real-time WebSocket** to hold a persistent low-overhead connection for receiving events
+- **HTTP webhooks** to receive events with a HTTP server, sending POST requests to provided URLs
 
-### 📱 **Advanced SMS Features**
+### **Advanced SMS Features**
 - Automatic handling of multipart SMS messages
 - SMS delivery report tracking with status updates
 - Support for both incoming and outgoing message management
 - International phone number format handling
 
-### 🛰️ **Location Services**
+### **Location Services**
 - Built-in GNSS/GPS location tracking (configurable)
 - Real-time position reporting via events
 - Location data integration with SMS workflows
 
-## Getting Started
-
-1. **Hardware Setup**: Connect your GSM modem to your device
-2. **Configuration**: Create a `config.toml` file (see [Configuration Guide](docs/configuration.md))
-3. **Launch**: Start the gateway and begin sending/receiving SMS messages
-
 ## Documentation
 
-| Document                                        | Description                                        |
-|-------------------------------------------------|----------------------------------------------------|
-| [📋 Configuration Guide](docs/configuration.md) | Complete configuration reference with examples     |
-| [📡 Event Types](docs/events.md)                | Available events received via WebSocket or Webhook |
-| [🔗 HTTP API Reference](docs/http.md)           | REST API endpoints for SMS operations              |
-| [⚡ WebSocket Guide](docs/websocket.md)          | Real-time event streaming setup                    |
+| Document                                     | Description                                        |
+|----------------------------------------------|----------------------------------------------------|
+| [Configuration Guide](docs/configuration.md) | Complete configuration reference with examples     |
+| [Event Types](docs/events.md)                | Available events received via WebSocket or Webhook |
+| [HTTP API Reference](docs/http.md)           | REST API endpoints for SMS operations              |
+| [WebSocket Guide](docs/websocket.md)         | Real-time event streaming setup                    |
+
+## Features
+
+| Name          | Default | Description                                                                            |
+|---------------|---------|----------------------------------------------------------------------------------------|
+| `gpio`        | ✔️      | GPIO power pin support for automatic HAT power management                              |
+| `http-server` | ✔️      | HTTP server to control the modem and access database                                   |
+| `db-sqlite`   | ✔️      | SQLite database connection driver (currently only database supported)                  |
+| `tls-rustls`  | ✔️      | Uses rustls and aws-lc-rs for TLS all connections                                      | 
+| `tls-native`  |         | Uses openssl for http-server (if enabled) and native-tls for all other TLS connections |
+| `sentry`      |         | Adds Sentry error reporting / logging integration                                      |
+
+## Installation
+
+```shell
+git clone https://github.com/morgverd/sms-server
+
+# Build, with all default.
+cargo build -r
+
+# Build with Sentry error forwarding.
+cargo build -r --features sentry
+
+# Build without HTTP server, and with GPIO, SQLite and Rust TLS.
+cargo build -r --no-default-features -F gpio,db-sqlite,tls-rustls
+
+# Build with native SSL and default features.
+cargo build -r --no-default-features -F gpio,http-server,db-sqlite,tls-native 
+```
+```shell
+# Show command line help.
+./sms-server -h
+
+# Start the SMS server with a config path, can be relative or absolute.
+./sms-server -c config.toml
+
+# Start the SMS server with debug logging.
+RUST_LOG=debug ./sms-server -c config.toml
+```
 
 ## Examples
 
-### [💬 ChatGPT SMS Bot](./examples/chatgpt-sms)
+### [💬 ChatGPT SMS Bot](examples/chatgpt-sms)
 
-An intelligent SMS responder that integrates with OpenAI's ChatGPT API. Receives incoming messages via webhooks, generates contextual replies using conversation history, and responds automatically. Features conversation memory and customizable response templates.
+An example chatbot that integrates with OpenAI's ChatGPT API. Receives incoming messages via webhooks, generates replies using message history, and responds automatically.
 
-> [!NOTE]
-> Possibly the first ChatGPT SMS implementation running directly through cellular modem hardware!
-
-### [🗺️ Real-time GNSS Viewer](./examples/gnss-viewer)
+### [🗺️ Real-time GNSS Viewer](examples/gnss-viewer)
 
 A web-based GPS tracking dashboard that connects via WebSocket to display live position updates. Monitor location accuracy, track movement patterns, and analyze GPS performance in real-time. Accessible from any networked device with a modern web browser.
 
