@@ -78,7 +78,6 @@ pub struct ModemConfig {
     #[serde(default = "default_true")]
     #[cfg(feature = "gpio")]
     pub gpio_repower: bool,
-
 }
 impl Default for ModemConfig {
     fn default() -> Self {
@@ -98,7 +97,7 @@ impl Default for ModemConfig {
             gpio_power_pin: default_gpio_power_pin(),
 
             #[cfg(feature = "gpio")]
-            gpio_repower: default_true()
+            gpio_repower: default_true(),
         }
     }
 }

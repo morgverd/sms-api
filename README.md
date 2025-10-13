@@ -5,24 +5,31 @@ Offers database persistence, delivery tracking, and real-time events—no SIM po
 Secure, flexible, and efficient.
 
 ### **Multiple Integration Options**
-- **[HTTP REST API](docs/http.md)** for sending and reading SMS messages, modem requests and device info
-- **[Real-time WebSocket](docs/websocket.md)** for receiving events live, with optional event filtering
+- **[Rust Client Library](https://github.com/morgverd/sms-client)** (**[crates.io](https://crates.io/crates/sms-client)**) for easily using the HTTP & WebSocket interfaces
+- **[HTTP API](docs/http.md)** for sending and reading SMS messages, modem requests and device info
+- **[WebSocket Subscriber](docs/websocket.md)** for receiving events live, with optional event filtering
 - **[HTTP Webhooks](docs/events.md)** to receive events with a HTTP server, sending POST requests to provided URLs
 
-### **Built-in Security**
+### Built-in Security
 - Encryption by default for all message storage within database
 - Optional Authorization token for HTTP API and WebSocket connections
 - HTTPS/WSS support for servers, custom TLS certificate support for webhooks
 
-### **Advanced SMS Features**
+### Advanced SMS Features
 - Automatic handling of multipart SMS messages
 - SMS delivery report tracking with status updates
 - International phone number format handling
 
-### **Location Services**
+### Location Services
 - Built-in GNSS/GPS location tracking (configurable)
 - Real-time position reporting via events
 - Location data integration with SMS workflows
+
+## Getting Started
+
+1. **Hardware Setup**: Connect your GSM modem to your device
+2. **Configuration**: Create a `config.toml` file (see [Configuration Guide](docs/configuration.md))
+3. **Launch**: Start the gateway and begin sending/receiving SMS messages
 
 ## Documentation
 
@@ -48,13 +55,20 @@ The feature code is used in the build version metadata suffix. Eg: `1.0.0#ghtr` 
 
 ## Examples
 
-### [💬 ChatGPT SMS Bot](examples/chatgpt-sms)
+### [💬 ChatGPT SMS Bot](./examples/chatgpt-sms)
 
-An example chatbot that integrates with OpenAI's ChatGPT API. Receives incoming messages via webhooks, generates replies using message history, and responds automatically.
+An intelligent SMS responder that integrates with OpenAI's ChatGPT API. Receives incoming messages via webhooks, generates contextual replies using conversation history, and responds automatically. Features conversation memory and customizable response templates.
 
-### [🗺️ Real-time GNSS Viewer](examples/gnss-viewer)
+> [!NOTE]
+> Possibly the first ChatGPT SMS implementation running directly through cellular modem hardware!
+
+### [🗺️ Real-time GNSS Viewer](./examples/gnss-viewer)
 
 A web-based GPS tracking dashboard that connects via WebSocket to display live position updates. Monitor location accuracy, track movement patterns, and analyze GPS performance in real-time. Accessible from any networked device with a modern web browser.
+
+### [📟 SMS Terminal](https://github.com/morgverd/sms-terminal) ([crates.io](https://crates.io/crates/sms-terminal))
+
+A Rust TUI that makes it easy to view a phonebook of recent contacts, compose SMS messages, view messages (live updating) and see device info. Uses the [sms-client](https://github.com/morgverd/sms-client) ([crates.io](https://crates.io/crates/sms-client)) library to interface with this project!
 
 ## Installation
 
@@ -93,5 +107,5 @@ I use (and this project has only been tested with) a [Waveshare GSM Pi Hat](http
 
 ## Known Limitations
 
-- **Delivery Confirmation Scope**: Only the final segment of multipart SMS messages receives delivery confirmation tracking, which may mask delivery failures in earlier message parts.
-- **Sequential Processing**: Messages are processed sequentially, which ensures reliability but may impact throughput for high-volume scenarios.
+- **Delivery Confirmation Scope**: Only the final segment of multipart SMS messages receives delivery confirmation tracking, which may mask delivery failures in earlier message parts
+- **Sequential Processing**: Messages are processed sequentially, which ensures reliability but may impact throughput for high-volume scenarios

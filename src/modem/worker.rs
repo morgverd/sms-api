@@ -45,7 +45,11 @@ impl ModemWorker {
         // Get the Pi's GPIO power pin.
         #[cfg(feature = "gpio")]
         let power_pin = if config.gpio_enabled {
-            Some(rppal::gpio::Gpio::new()?.get(config.gpio_power_pin)?.into_output())
+            Some(
+                rppal::gpio::Gpio::new()?
+                    .get(config.gpio_power_pin)?
+                    .into_output(),
+            )
         } else {
             None
         };
@@ -59,7 +63,7 @@ impl ModemWorker {
             config,
 
             #[cfg(feature = "gpio")]
-            power_pin
+            power_pin,
         })
     }
 
@@ -292,8 +296,8 @@ impl ModemWorker {
     async fn initialize_modem(&mut self) -> Result<()> {
         info!("Sending modem initialization commands");
         let mut initialization_commands: Vec<(Vec<u8>, Vec<u8>)> = vec![
-            init_cmd!("ATZ\r\n", "OK"), // Reset
-            init_cmd!("ATE0\r\n", "OK"), // Disable echo
+            init_cmd!("ATZ\r\n", "OK"),                              // Reset
+            init_cmd!("ATE0\r\n", "OK"),                             // Disable echo
             init_cmd!("AT+CMGF=0\r\n", "OK"), // Set SMS message format to PDU
             init_cmd!("AT+CSCS=\"GSM\"\r\n", "OK"), // Use GSM 7-bit alphabet
             init_cmd!("AT+CNMI=2,2,0,1,0\r\n", "OK"), // Receive all incoming SMS messages and delivery reports

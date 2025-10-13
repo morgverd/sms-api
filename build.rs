@@ -45,7 +45,7 @@ fn get_version() -> String {
         ("HTTP_SERVER", "h"),
         ("SENTRY", "s"),
         ("TLS_NATIVE", "tn"),
-        ("TLS_RUSTLS", "tr")
+        ("TLS_RUSTLS", "tr"),
     ];
     for (feature, name) in feature_names {
         if std::env::var(format!("CARGO_FEATURE_{feature}")).is_ok() {
