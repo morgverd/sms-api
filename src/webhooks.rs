@@ -1,66 +1,70 @@
+use crate::config::ConfiguredWebhook;
+use crate::events::{Event, EventType};
+use anyhow::{Context, Result};
+use futures::{stream, StreamExt};
+use reqwest::header::HeaderMap;
+use reqwest::Client;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use futures::{stream, StreamExt};
-use tracing::log::{debug, error, info, warn};
-use reqwest::Client;
-use reqwest::header::HeaderMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use anyhow::{bail, Context, Result};
-use crate::config::ConfiguredWebhook;
-use crate::events::{Event, EventType};
+use tracing::log::{debug, error, info, warn};
 
 const CONCURRENCY_LIMIT: usize = 10;
 const WEBHOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn client_builder(webhooks: &Vec<ConfiguredWebhook>) -> Result<reqwest::ClientBuilder> {
+fn client_builder(webhooks: &[ConfiguredWebhook]) -> Result<reqwest::ClientBuilder> {
     let builder = Client::builder();
-    let certificate_paths: Vec<PathBuf> = webhooks.into_iter()
-        .filter_map(|w| w.certificate.clone())
+    let certificate_paths: Vec<&PathBuf> = webhooks
+        .iter()
+        .filter_map(|w| w.certificate_path.as_ref())
         .collect();
-    
+
     // If there are no certificates, return base builder.
     if certificate_paths.is_empty() {
         return Ok(builder);
     }
 
-    #[cfg(not(any(feature = "rust-tls", feature = "default-tls")))]
+    #[cfg(not(any(feature = "tls-rustls", feature = "tls-native")))]
     {
-        let _ = tls_config; // Suppress unused variable warning
-        return Err(anyhow!(
-            "TLS configuration provided but no TLS features enabled. Enable either 'rust-tls' or 'default-tls' feature"
+        return Err(anyhow::anyhow!(
+            "Webhook TLS configuration provided but no TLS features enabled. Compile with a TLS backend feature!"
         ));
     }
 
-    #[cfg(any(feature = "rust-tls", feature = "default-tls"))]
+    #[cfg(any(feature = "tls-rustls", feature = "tls-native"))]
     {
         let mut builder = builder;
 
         // Configure TLS backend
-        #[cfg(feature = "rust-tls")]
-        { builder = builder.use_rustls_tls(); }
+        #[cfg(feature = "tls-rustls")]
+        {
+            builder = builder.use_rustls_tls();
+        }
 
-        #[cfg(feature = "default-tls")]
-        { builder = builder.use_native_tls(); }
+        #[cfg(feature = "tls-native")]
+        {
+            builder = builder.use_native_tls();
+        }
 
         // Load and add certificate
         for certificate_path in certificate_paths {
-            let certificate = load_certificate(&certificate_path)?;
+            let certificate = load_certificate(certificate_path)?;
             builder = builder.add_root_certificate(certificate);
         }
 
-        return Ok(builder);
+        Ok(builder)
     }
 }
 
-#[cfg(any(feature = "rust-tls", feature = "default-tls"))]
-fn load_certificate(cert_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
-    let cert_data = std::fs::read(cert_path)?;
+#[cfg(any(feature = "tls-rustls", feature = "tls-native"))]
+fn load_certificate(certificate_path: &std::path::Path) -> Result<reqwest::tls::Certificate> {
+    let cert_data = std::fs::read(certificate_path)?;
 
     // Try to parse based on file extension first
-    if let Some(ext) = cert_path.extension().and_then(|s| s.to_str()) {
+    if let Some(ext) = certificate_path.extension().and_then(|s| s.to_str()) {
         match ext {
             "pem" => return Ok(reqwest::tls::Certificate::from_pem(&cert_data)?),
             "der" => return Ok(reqwest::tls::Certificate::from_der(&cert_data)?),
@@ -70,7 +74,7 @@ fn load_certificate(cert_path: &std::path::Path) -> Result<reqwest::tls::Certifi
                 } else {
                     return Ok(reqwest::tls::Certificate::from_der(&cert_data)?);
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -87,7 +91,6 @@ pub struct WebhookSender {
 }
 impl WebhookSender {
     pub fn new(webhooks: Vec<ConfiguredWebhook>) -> (Self, JoinHandle<()>) {
-
         // Use an unbounded channel to ensure no webhooks are ever dropped.
         // The modem command channel is bound, so we should be fine from API spam.
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
@@ -102,7 +105,7 @@ impl WebhookSender {
 
     pub fn send(&self, event: Event) {
         if let Err(e) = self.event_sender.send(event) {
-            error!("Failed to queue webhook job: {}", e);
+            error!("Failed to queue webhook job: {e}");
         }
     }
 }
@@ -113,16 +116,17 @@ struct WebhookWorker {
     webhooks: Arc<[StoredWebhook]>,
     events_map: HashMap<EventType, Vec<usize>>,
     event_receiver: mpsc::UnboundedReceiver<Event>,
-    client: Client
+    client: Client,
 }
 impl WebhookWorker {
-    fn new(webhooks: Vec<ConfiguredWebhook>, event_receiver: mpsc::UnboundedReceiver<Event>) -> Self {
+    fn new(
+        webhooks: Vec<ConfiguredWebhook>,
+        event_receiver: mpsc::UnboundedReceiver<Event>,
+    ) -> Self {
         let mut events_map: HashMap<EventType, Vec<usize>> = HashMap::new();
         for (idx, webhook) in webhooks.iter().enumerate() {
             for event in &webhook.events {
-                events_map.entry(*event)
-                    .or_default()
-                    .push(idx);
+                events_map.entry(*event).or_default().push(idx);
             }
         }
 
@@ -133,16 +137,15 @@ impl WebhookWorker {
             .expect("Failed to build Webhooks Reqwest client!");
 
         Self {
-
             // Cache all webhook HeaderMaps now instead of re-creating each time.
-            webhooks: webhooks.into_iter()
+            webhooks: webhooks
+                .into_iter()
                 .enumerate()
                 .map(|(idx, webhook)| {
-                    let headers = webhook.get_header_map()
-                        .unwrap_or_else(|e| {
-                            error!("Failed to create Webhook #{} HeaderMap with error: {}", idx, e);
-                            None
-                        });
+                    let headers = webhook.get_header_map().unwrap_or_else(|e| {
+                        error!("Failed to create Webhook #{idx} HeaderMap with error: {e}");
+                        None
+                    });
 
                     (webhook, headers)
                 })
@@ -151,7 +154,7 @@ impl WebhookWorker {
 
             events_map,
             event_receiver,
-            client
+            client,
         }
     }
 
@@ -165,7 +168,7 @@ impl WebhookWorker {
     async fn process(&self, event: Event) {
         let webhook_indices = match self.events_map.get(&event.to_event_type()) {
             Some(indices) => indices.clone(),
-            None => return
+            None => return,
         };
 
         let event = Arc::new(event);
@@ -179,9 +182,13 @@ impl WebhookWorker {
 
                 // TODO: Maybe re-queue failed webhooks?
                 async move {
-                    match Self::execute_webhook(webhook, &client, &event).await {
-                        Ok(()) => debug!("Webhook #{} for task #{} was sent successfully!", webhook_idx, task_idx),
-                        Err(e) => warn!("Failed to send Webhook #{} for task #{} with error: {}", webhook_idx, task_idx, e)
+                    match Self::execute_webhook(webhook, client, &event).await {
+                        Ok(()) => debug!(
+                            "Webhook #{webhook_idx} for task #{task_idx} was sent successfully!"
+                        ),
+                        Err(e) => warn!(
+                            "Failed to send Webhook #{webhook_idx} for task #{task_idx} with error: {e}"
+                        ),
                     }
                 }
             })
@@ -193,28 +200,28 @@ impl WebhookWorker {
     async fn execute_webhook(
         (webhook, headers): &StoredWebhook,
         client: &Client,
-        event: &Event
+        event: &Event,
     ) -> Result<()> {
-        let mut request = client
-            .post(&webhook.url)
-            .json(event);
+        let mut request = client.post(&webhook.url).json(event);
 
         if let Some(headers) = headers {
             request = request.headers(headers.clone());
         }
 
-        let status = request.send().await
+        let status = request
+            .send()
+            .await
             .with_context(|| "Network error")?
             .status();
 
         match webhook.expected_status {
             Some(expected) if status.as_u16() != expected => {
-                bail!("Got {} expected {}!", status.as_u16(), expected);
+                anyhow::bail!("Got {} expected {}!", status.as_u16(), expected);
             }
             None if !status.is_success() => {
-                bail!("Unsuccessful status {}", status);
+                anyhow::bail!("Unsuccessful status {}", status);
             }
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 }

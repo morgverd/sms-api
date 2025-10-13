@@ -1,15 +1,16 @@
+use crate::events::EventType;
+use anyhow::{Context, Result};
+use base64::engine::general_purpose;
+use base64::Engine;
+use reqwest::header::HeaderMap;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
-use anyhow::{Context, Result};
-use axum::http::HeaderValue;
-use base64::Engine;
-use base64::engine::general_purpose;
-use reqwest::header::{HeaderMap, HeaderName};
-use serde::Deserialize;
-use crate::events::EventType;
+
+#[cfg(feature = "http-server")]
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -21,22 +22,22 @@ pub struct AppConfig {
     #[serde(default)]
     pub modem: ModemConfig,
 
+    #[cfg(feature = "http-server")]
     #[serde(default)]
     pub http: HTTPConfig,
 
     #[serde(default)]
-    pub webhooks: Option<Vec<ConfiguredWebhook>>
+    pub webhooks: Option<Vec<ConfiguredWebhook>>,
 }
 impl AppConfig {
     pub fn load(config_filepath: Option<PathBuf>) -> Result<Self> {
-        let config_path = config_filepath
-            .unwrap_or_else(|| PathBuf::from("config.toml"));
+        let config_path = config_filepath.unwrap_or_else(|| PathBuf::from("config.toml"));
 
         let config_content = fs::read_to_string(&config_path)
-            .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+            .with_context(|| format!("Failed to read config file: {config_path:?}"))?;
 
         let config: AppConfig = toml::from_str(&config_content)
-            .with_context(|| format!("Failed to parse TOML config file: {:?}", config_path))?;
+            .with_context(|| format!("Failed to parse TOML config file: {config_path:?}"))?;
 
         Ok(config)
     }
@@ -48,19 +49,13 @@ pub struct ModemConfig {
     pub device: String,
 
     #[serde(default = "default_modem_baud")]
-    pub baud: u32,
+    pub baud_rate: u32,
 
     #[serde(default = "default_false")]
     pub gnss_enabled: bool,
 
     #[serde(default = "default_gnss_report_interval")]
     pub gnss_report_interval: u32,
-
-    #[serde(default = "default_false")]
-    pub gpio_power_pin: bool,
-
-    #[serde(default = "default_true")]
-    pub gpio_repower: bool,
 
     /// The size of Command bounded mpsc sender, should be low. eg: 32
     #[serde(default = "default_modem_cmd_buffer_size")]
@@ -70,20 +65,39 @@ pub struct ModemConfig {
     pub read_buffer_size: usize,
 
     #[serde(default = "default_modem_read_buffer_size")]
-    pub line_buffer_size: usize
+    pub line_buffer_size: usize,
+
+    #[serde(default = "default_false")]
+    #[cfg(feature = "gpio")]
+    pub gpio_enabled: bool,
+
+    #[serde(default = "default_gpio_power_pin")]
+    #[cfg(feature = "gpio")]
+    pub gpio_power_pin: u8,
+
+    #[serde(default = "default_true")]
+    #[cfg(feature = "gpio")]
+    pub gpio_repower: bool,
 }
 impl Default for ModemConfig {
     fn default() -> Self {
         Self {
             device: default_modem_device(),
-            baud: default_modem_baud(),
+            baud_rate: default_modem_baud(),
             gnss_enabled: default_false(),
             gnss_report_interval: default_gnss_report_interval(),
-            gpio_power_pin: default_false(),
-            gpio_repower: default_true(),
             cmd_channel_buffer_size: default_modem_cmd_buffer_size(),
             read_buffer_size: default_modem_read_buffer_size(),
-            line_buffer_size: default_modem_read_buffer_size()
+            line_buffer_size: default_modem_read_buffer_size(),
+
+            #[cfg(feature = "gpio")]
+            gpio_enabled: default_false(),
+
+            #[cfg(feature = "gpio")]
+            gpio_power_pin: default_gpio_power_pin(),
+
+            #[cfg(feature = "gpio")]
+            gpio_repower: default_true(),
         }
     }
 }
@@ -93,7 +107,7 @@ pub struct DatabaseConfig {
     pub database_url: String,
 
     #[serde(deserialize_with = "deserialize_encryption_key")]
-    pub encryption_key: [u8; 32]
+    pub encryption_key: [u8; 32],
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,17 +124,21 @@ pub struct ConfiguredWebhook {
 
     #[serde(deserialize_with = "deserialize_optional_existing_file")]
     #[serde(default)]
-    pub certificate: Option<PathBuf>
+    pub certificate_path: Option<PathBuf>,
 }
 impl ConfiguredWebhook {
     pub fn get_header_map(&self) -> Result<Option<HeaderMap>> {
-        let map = if let Some(headers) = &self.headers { headers } else { return Ok(None); };
+        let map = if let Some(headers) = &self.headers {
+            headers
+        } else {
+            return Ok(None);
+        };
 
         let mut out = HeaderMap::with_capacity(map.len());
         for (k, v) in map {
             out.insert(
-                HeaderName::from_str(k)?,
-                HeaderValue::from_str(v)?
+                reqwest::header::HeaderName::from_str(k)?,
+                reqwest::header::HeaderValue::from_str(v)?,
             );
         }
 
@@ -143,9 +161,10 @@ pub struct SentryConfig {
     pub debug: bool,
 
     #[serde(default = "default_true")]
-    pub send_default_pii: bool
+    pub send_default_pii: bool,
 }
 
+#[cfg(feature = "http-server")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct HTTPConfig {
     #[serde(default)]
@@ -167,8 +186,9 @@ pub struct HTTPConfig {
     pub phone_number: Option<String>,
 
     #[serde(default)]
-    pub tls: Option<TLSConfig>
+    pub tls: Option<TLSConfig>,
 }
+#[cfg(feature = "http-server")]
 impl Default for HTTPConfig {
     fn default() -> Self {
         Self {
@@ -178,39 +198,74 @@ impl Default for HTTPConfig {
             require_authentication: default_true(),
             websocket_enabled: default_true(),
             phone_number: None,
-            tls: None
+            tls: None,
         }
     }
 }
+#[cfg_attr(
+    not(any(feature = "tls-rustls", feature = "tls-native")),
+    allow(dead_code)
+)]
+#[cfg(feature = "http-server")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct TLSConfig {
     #[serde(deserialize_with = "deserialize_existing_file")]
-    pub cert_path: PathBuf,
+    pub certificate_path: PathBuf,
 
     #[serde(deserialize_with = "deserialize_existing_file")]
-    pub key_path: PathBuf
+    pub key_path: PathBuf,
 }
 
-fn default_modem_device() -> String { "/dev/ttyS0".to_string() }
-fn default_modem_baud() -> u32 { 115200 }
-fn default_modem_cmd_buffer_size() -> usize { 32 }
-fn default_modem_read_buffer_size() -> usize { 4096 }
-fn default_webhook_events() -> Vec<EventType> { vec![EventType::IncomingMessage] }
-fn default_http_address() -> SocketAddr { SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000) }
-fn default_gnss_report_interval() -> u32 { 0 }
-fn default_false() -> bool { false }
-fn default_true() -> bool { true }
+fn default_modem_device() -> String {
+    "/dev/ttyS0".to_string()
+}
+fn default_modem_baud() -> u32 {
+    115200
+}
+fn default_modem_cmd_buffer_size() -> usize {
+    32
+}
+fn default_modem_read_buffer_size() -> usize {
+    4096
+}
+fn default_webhook_events() -> Vec<EventType> {
+    vec![EventType::IncomingMessage]
+}
+fn default_gnss_report_interval() -> u32 {
+    0
+}
+fn default_false() -> bool {
+    false
+}
+fn default_true() -> bool {
+    true
+}
+
+/// Based on the hardware I am using, https://files.waveshare.com/upload/4/4a/GSM_GPRS_GNSS_HAT_User_Manual_EN.pdf
+#[cfg(feature = "gpio")]
+fn default_gpio_power_pin() -> u8 {
+    4
+}
+
+#[cfg(feature = "http-server")]
+fn default_http_address() -> SocketAddr {
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 3000)
+}
 
 fn deserialize_encryption_key<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    let decoded = general_purpose::STANDARD.decode(&s)
-        .map_err(|e| serde::de::Error::custom(format!("Failed to decode base64 encryption key: {}", e)))?;
+    let decoded = general_purpose::STANDARD.decode(&s).map_err(|e| {
+        serde::de::Error::custom(format!("Failed to decode base64 encryption key: {e}"))
+    })?;
 
     if decoded.len() != 32 {
-        return Err(serde::de::Error::custom(format!("Encryption key must be 32 bytes, got {}", decoded.len())));
+        return Err(serde::de::Error::custom(format!(
+            "Encryption key must be 32 bytes, got {}",
+            decoded.len()
+        )));
     }
 
     let mut key = [0u8; 32];
@@ -224,14 +279,16 @@ where
 {
     let path = PathBuf::deserialize(deserializer)?;
     if !path.exists() {
-        return Err(serde::de::Error::custom(
-            format!("File does not exist: {}", path.display())
-        ));
+        return Err(serde::de::Error::custom(format!(
+            "File does not exist: {}",
+            path.display()
+        )));
     }
     if !path.is_file() {
-        return Err(serde::de::Error::custom(
-            format!("Path is not a file: {}", path.display())
-        ));
+        return Err(serde::de::Error::custom(format!(
+            "Path is not a file: {}",
+            path.display()
+        )));
     }
     Ok(path)
 }
@@ -246,6 +303,6 @@ where
             let path_deserializer = serde::de::value::StringDeserializer::new(path_str);
             Ok(Some(deserialize_existing_file(path_deserializer)?))
         }
-        None => Ok(None)
+        None => Ok(None),
     }
 }

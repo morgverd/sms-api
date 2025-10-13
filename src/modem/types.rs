@@ -1,15 +1,14 @@
-use std::fmt::{Display, Formatter};
-use std::time::Duration;
+#![cfg_attr(not(feature = "http-server"), allow(dead_code))]
+
+use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
-use crate::sms::types::{SMSIncomingDeliveryReport, SMSIncomingMessage};
+use std::fmt::{Display, Formatter};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub enum ModemRequest {
-    SendSMS {
-        len: usize,
-        pdu: String
-    },
+    SendSMS { len: usize, pdu: String },
     GetNetworkStatus,
     GetSignalStrength,
     GetNetworkOperator,
@@ -18,13 +17,16 @@ pub enum ModemRequest {
 
     // These only work if GNSS is enabled in modem config.
     GetGNSSStatus,
-    GetGNSSLocation
+    GetGNSSLocation,
 }
 impl ModemRequest {
-    pub fn get_default_timeout(&self) -> Duration {
+    const TIMEOUT_SMS: Duration = Duration::from_secs(30);
+    const TIMEOUT_DEFAULT: Duration = Duration::from_secs(5);
+
+    pub const fn get_default_timeout(&self) -> Duration {
         match self {
-            ModemRequest::SendSMS { .. } => Duration::from_secs(30),
-            _ => Duration::from_secs(5)
+            ModemRequest::SendSMS { .. } => Self::TIMEOUT_SMS,
+            _ => Self::TIMEOUT_DEFAULT,
         }
     }
 }
@@ -35,48 +37,53 @@ pub enum ModemResponse {
     SendResult(u8),
     NetworkStatus {
         registration: u8,
-        technology: u8
+        technology: u8,
     },
     SignalStrength {
         rssi: i32,
-        ber: i32
+        ber: i32,
     },
     NetworkOperator {
         status: u8,
         format: u8,
-        operator: String
+        operator: String,
     },
     ServiceProvider(String),
     BatteryLevel {
         status: u8,
         charge: u8,
-        voltage: f32
+        voltage: f32,
     },
     GNSSStatus(GNSSFixStatus),
     GNSSLocation(GNSSLocation),
-    Error(String)
+    Error(String),
 }
 impl Display for ModemResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModemResponse::SendResult(reference_id) =>
-                write!(f, "SMSResult: Ref {}", reference_id),
-            ModemResponse::NetworkStatus { registration, technology } =>
-                write!(f, "NetworkStatus: Reg: {}, Tech: {}", registration, technology),
-            ModemResponse::SignalStrength { rssi, ber } =>
-                write!(f, "SignalStrength: {} dBm ({})", rssi, ber),
-            ModemResponse::NetworkOperator { operator, .. } =>
-                write!(f, "NetworkOperator: {}", operator),
-            ModemResponse::ServiceProvider(operator) =>
-                write!(f, "ServiceProvider: {}", operator),
-            ModemResponse::BatteryLevel { status, charge, voltage } =>
-                write!(f, "BatteryLevel. Status: {}, Charge: {}, Voltage: {}", status, charge, voltage),
-            ModemResponse::GNSSStatus(status) =>
-                write!(f, "GNSS-Status: {:?}", status),
-            ModemResponse::GNSSLocation(location) =>
-                write!(f, "GNSS-Location: {:?}", location),
-            ModemResponse::Error(message) =>
-                write!(f, "Error: {}", message)
+            ModemResponse::SendResult(reference_id) => write!(f, "SMSResult: Ref {reference_id}"),
+            ModemResponse::NetworkStatus {
+                registration,
+                technology,
+            } => write!(f, "NetworkStatus: Reg: {registration}, Tech: {technology}"),
+            ModemResponse::SignalStrength { rssi, ber } => {
+                write!(f, "SignalStrength: {rssi} dBm ({ber})")
+            }
+            ModemResponse::NetworkOperator { operator, .. } => {
+                write!(f, "NetworkOperator: {operator}")
+            }
+            ModemResponse::ServiceProvider(operator) => write!(f, "ServiceProvider: {operator}"),
+            ModemResponse::BatteryLevel {
+                status,
+                charge,
+                voltage,
+            } => write!(
+                f,
+                "BatteryLevel. Status: {status}, Charge: {charge}, Voltage: {voltage}"
+            ),
+            ModemResponse::GNSSStatus(status) => write!(f, "GNSS-Status: {status:?}"),
+            ModemResponse::GNSSLocation(location) => write!(f, "GNSS-Location: {location:?}"),
+            ModemResponse::Error(message) => write!(f, "Error: {message}"),
         }
     }
 }
@@ -86,14 +93,14 @@ pub enum ModemStatus {
     Startup,
     Online,
     ShuttingDown,
-    Offline
+    Offline,
 }
 
 #[derive(Debug)]
 pub enum ModemEvent {
     UnsolicitedMessage {
         message_type: UnsolicitedMessageType,
-        header: String
+        header: String,
     },
     CommandResponse(String),
     Data(String),
@@ -106,7 +113,7 @@ pub enum UnsolicitedMessageType {
     DeliveryReport,
     NetworkStatusChange,
     ShuttingDown,
-    GNSSPositionReport
+    GNSSPositionReport,
 }
 impl UnsolicitedMessageType {
     pub fn from_header(header: &str) -> Option<Self> {
@@ -122,8 +129,8 @@ impl UnsolicitedMessageType {
             match header {
                 "NORMAL POWER DOWN" | "POWER DOWN" | "SHUTDOWN" | "POWERING DOWN" => {
                     Some(UnsolicitedMessageType::ShuttingDown)
-                },
-                _ => None
+                }
+                _ => None,
             }
         }
     }
@@ -133,7 +140,7 @@ impl UnsolicitedMessageType {
         match self {
             UnsolicitedMessageType::ShuttingDown => false,
             UnsolicitedMessageType::GNSSPositionReport => false,
-            _ => true
+            _ => true,
         }
     }
 }
@@ -144,10 +151,10 @@ pub enum ModemIncomingMessage {
     DeliveryReport(SMSIncomingDeliveryReport),
     ModemStatusUpdate {
         previous: ModemStatus,
-        current: ModemStatus
+        current: ModemStatus,
     },
     NetworkStatusChange(u8),
-    GNSSPositionReport(GNSSLocation)
+    GNSSPositionReport(GNSSLocation),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,7 +162,7 @@ pub enum GNSSFixStatus {
     Unknown,
     NotFix,
     Fix2D,
-    Fix3D
+    Fix3D,
 }
 impl TryFrom<&str> for GNSSFixStatus {
     type Error = anyhow::Error;
@@ -164,9 +171,9 @@ impl TryFrom<&str> for GNSSFixStatus {
         match value.trim() {
             "Location Unknown" | "Unknown" => Ok(GNSSFixStatus::Unknown),
             "Location Not Fix" | "Not Fix" => Ok(GNSSFixStatus::NotFix),
-            "Location 2D Fix"  | "2D Fix" => Ok(GNSSFixStatus::Fix2D),
-            "Location 3D Fix"  | "3D Fix" => Ok(GNSSFixStatus::Fix3D),
-            _ => Err(anyhow!("Invalid GNSS fix status: '{}'", value))
+            "Location 2D Fix" | "2D Fix" => Ok(GNSSFixStatus::Fix2D),
+            "Location 3D Fix" | "3D Fix" => Ok(GNSSFixStatus::Fix3D),
+            _ => Err(anyhow!("Invalid GNSS fix status: '{}'", value)),
         }
     }
 }
@@ -176,7 +183,7 @@ impl From<u8> for GNSSFixStatus {
             0 => GNSSFixStatus::NotFix,
             1 => GNSSFixStatus::Fix2D,
             2 => GNSSFixStatus::Fix3D,
-            _ => GNSSFixStatus::Unknown
+            _ => GNSSFixStatus::Unknown,
         }
     }
 }
@@ -197,7 +204,7 @@ pub struct GNSSLocation {
     vdop: Option<f32>,
     gps_in_view: Option<u8>,
     gnss_used: Option<u8>,
-    glonass_in_view: Option<u8>
+    glonass_in_view: Option<u8>,
 }
 impl TryFrom<Vec<&str>> for GNSSLocation {
     type Error = anyhow::Error;
@@ -225,26 +232,27 @@ impl TryFrom<Vec<&str>> for GNSSLocation {
             // Reserved2
             gps_in_view: fields[14].parse().ok(),
             gnss_used: fields[15].parse().ok(),
-            glonass_in_view: fields[16].parse().ok()
+            glonass_in_view: fields[16].parse().ok(),
         })
     }
 }
 impl Display for GNSSLocation {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-
         fn convert_opt<T: Display>(opt: &Option<T>) -> String {
             match opt {
                 Some(value) => value.to_string(),
-                None => "None".to_string()
+                None => "None".to_string(),
             }
         }
 
-        write!(f, "Lat: {}, Lon: {}, Alt: {}, Speed: {}, Course: {}",
-               convert_opt(&self.latitude),
-               convert_opt(&self.longitude),
-               convert_opt(&self.msl_altitude),
-               convert_opt(&self.ground_speed),
-               convert_opt(&self.ground_course)
+        write!(
+            f,
+            "Lat: {}, Lon: {}, Alt: {}, Speed: {}, Course: {}",
+            convert_opt(&self.latitude),
+            convert_opt(&self.longitude),
+            convert_opt(&self.msl_altitude),
+            convert_opt(&self.ground_speed),
+            convert_opt(&self.ground_course)
         )
     }
 }

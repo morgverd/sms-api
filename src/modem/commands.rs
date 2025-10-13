@@ -1,9 +1,9 @@
+use crate::modem::types::{ModemRequest, ModemResponse};
+use anyhow::{anyhow, bail, Result};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::oneshot;
-use anyhow::{anyhow, bail, Result};
-use tracing::log::{debug, error};
-use crate::modem::types::{ModemRequest, ModemResponse};
+use tracing::log::debug;
 
 static COMMAND_SEQUENCE: AtomicU32 = AtomicU32::new(1);
 
@@ -15,21 +15,23 @@ pub fn next_command_sequence() -> u32 {
 pub struct CommandContext {
     pub sequence: u32,
     pub state: CommandState,
-    pub response_buffer: String
+    pub response_buffer: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum CommandState {
     WaitingForOk,
     WaitingForPrompt,
-    WaitingForData
+    WaitingForData,
 }
 impl CommandState {
     pub fn is_complete(&self, content: &str) -> bool {
         match self {
             CommandState::WaitingForOk => {
-                content == "OK" || content == "ERROR" ||
-                    content.starts_with("+CME ERROR:") || content.starts_with("+CMS ERROR:")
+                content == "OK"
+                    || content == "ERROR"
+                    || content.starts_with("+CME ERROR:")
+                    || content.starts_with("+CMS ERROR:")
             }
             CommandState::WaitingForPrompt => false,
             CommandState::WaitingForData => {
@@ -52,39 +54,52 @@ impl OutgoingCommand {
         sequence: u32,
         response_tx: oneshot::Sender<ModemResponse>,
         request: ModemRequest,
-        timeout: Option<u32>
+        timeout: Option<u32>,
     ) -> Self {
         Self {
             sequence,
             request,
             timeout,
-            response_tx: Some(response_tx)
+            response_tx: Some(response_tx),
         }
     }
 
     /// Get the request specific timeout, this will use whatever is
     /// provided in the response or the base timeout from the ModemRequest.
     pub fn get_request_timeout(&self) -> Duration {
-        self.timeout.map(|t| Duration::from_secs(t as u64))
+        self.timeout
+            .map(|t| Duration::from_secs(t as u64))
             .unwrap_or_else(|| self.request.get_default_timeout())
     }
 
     /// Respond to the command with a final response.
     pub async fn respond(&mut self, response: ModemResponse) -> Result<()> {
-        debug!("Attempting to respond to command #{} with: {:?}", self.sequence, response);
+        debug!(
+            "Attempting to respond to command #{} with: {:?}",
+            self.sequence, response
+        );
 
         if let Some(tx) = self.response_tx.take() {
-            debug!("Sending response via oneshot channel for command #{}", self.sequence);
+            debug!(
+                "Sending response via oneshot channel for command #{}",
+                self.sequence
+            );
             match tx.send(response) {
                 Ok(_) => {
                     debug!("Successfully sent response for command #{}", self.sequence);
                     Ok(())
-                },
-                Err(response) => Err(anyhow!("Failed to respond to command #{} with: {:?}", self.sequence, response))
+                }
+                Err(response) => Err(anyhow!(
+                    "Failed to respond to command #{} with: {:?}",
+                    self.sequence,
+                    response
+                )),
             }
         } else {
-            error!("Attempted to respond to command #{} but response channel was already used", self.sequence);
-            bail!("Attempted to respond to command #{} but response channel was already used", self.sequence);
+            bail!(
+                "Attempted to respond to command #{} but response channel was already used",
+                self.sequence
+            );
         }
     }
 }

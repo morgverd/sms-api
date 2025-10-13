@@ -1,22 +1,42 @@
 [package]
-name = "sms-api"
-version = "1.4.4"
+name = "sms-server"
+version = "2.3.2"
 edition = "2021"
+license = "AGPL-3.0-only"
+build = "build.rs"
+description = "SMS server for GSM modem hardware with HTTP/WebSocket APIs, encrypted message storage, delivery tracking, and GNSS location support. Designed for Raspberry Pi + GSM HAT setup."
+keywords = ["sms", "gsm", "sim", "sms-server"]
+categories = ["hardware-support", "web-programming::websocket", "web-programming::http-server", "database"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[[bin]]
+name = "sms-server"
+path = "src/main.rs"
 
 [features]
-default = ["rust-tls"]
+default = ["gpio", "http-server", "db-sqlite", "tls-rustls"]
+http-server = ["dep:tower-http", "dep:axum", "dep:axum-server", "dep:tower"]
 sentry = ["dep:sentry", "dep:sentry-tracing", "dep:sentry-anyhow", "dep:sentry-panic"]
 
+# Used for Raspberry Pi GPIO hat power pin.
+gpio = ["dep:rppal"]
+
+# SQLite doesn't need TLS, so it just uses basic tokio runtime.
+db-sqlite = ["sqlx/sqlite", "sqlx/runtime-tokio"]
+
 # HTTP TLS options for crates that use HTTP.
-rust-tls = ["dep:rustls", "reqwest/rustls-tls", "sentry/rustls", "axum-server/tls-rustls"]
-default-tls = ["reqwest/default-tls", "sentry/native-tls", "axum-server/tls-openssl"]
+tls-rustls = ["dep:rustls", "reqwest/rustls-tls", "sentry?/rustls", "axum-server?/tls-rustls"]
+tls-native = ["reqwest/native-tls", "sentry?/native-tls", "axum-server?/tls-openssl"]
 
 [dependencies]
 sms-pdu = "1.1.0"
-tokio = { version = "1.45.1", features = ["full"] }
+tokio = { version = "1.45.1", features = ["rt-multi-thread", "parking_lot"] }
 serde = { version = "1.0.219", features = ["derive"] }
-tower-http = { version = "0.6.6", features = ["cors", "set-header"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite"] }
+sqlx = { version = "0.8.6" }
 clap = { version = "4.5.39", features = ["derive"] }
 toml = { version = "0.9.5", default-features = false, features = ["serde", "parse"] }
 reqwest = { version = "0.12.19", default-features = false, features = ["json"] }
@@ -24,9 +44,6 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 anyhow = "1.0.98"
 tokio-serial = "5.4.5"
-axum = { version = "0.8.4", features = ["ws"] }
-axum-server = "0.7.2"
-tower = "0.5.2"
 hex = "0.4.3"
 rand = "0.9.1"
 base64 = "0.22.1"
@@ -37,12 +54,20 @@ num-traits = "0.2.19"
 dotenv = "0.15.0"
 uuid = { version = "1.18.0", features = ["v4"] }
 serde_json = "1.0.142"
-rppal = "0.22.1"
 
-# HTTP TLS.
-rustls = { version = "0.23", features = ["aws-lc-rs"], optional = true }
+# Optional GPIO feature.
+rppal = { version = "0.22.1", optional = true }
 
-# Optional Sentry feature.
+# Optional HTTP Server.
+tower-http = { version = "0.6.6", optional = true, features = ["cors", "set-header"] }
+axum = { version = "0.8.4", optional = true, features = ["ws"] }
+axum-server = { version = "0.7.2", optional = true }
+tower = { version = "0.5.2", optional = true }
+
+# Optional HTTP TLS.
+rustls = { version = "0.23", optional = true, features = ["aws-lc-rs"] }
+
+# Optional Sentry.
 sentry = { version = "0.42.0", default-features = false, features = ["backtrace", "contexts", "debug-images", "panic", "reqwest", "release-health", "tower-axum-matched-path"], optional = true }
 sentry-tracing = { version = "0.42.0", optional = true }
 sentry-anyhow = { version = "0.42.0", optional = true }

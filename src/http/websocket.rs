@@ -1,30 +1,32 @@
+use crate::events::{Event, EventType};
+use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
-use futures::{SinkExt, StreamExt};
-use tokio::sync::{mpsc, RwLock};
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc, RwLock};
 use tracing::log::{debug, error};
 use uuid::Uuid;
-use crate::events::{Event, EventType};
 
 pub type WebSocketConnection = (axum::extract::ws::WebSocket, Option<Vec<EventType>>);
 type StoredConnection = (UnboundedSender<axum::extract::ws::Utf8Bytes>, u8); // sender + event mask
 
 #[derive(Clone)]
 pub struct WebSocketManager {
-    connections: Arc<RwLock<HashMap<String, StoredConnection>>>
+    connections: Arc<RwLock<HashMap<String, StoredConnection>>>,
 }
 impl WebSocketManager {
     pub fn new() -> Self {
-        Self { connections: Arc::new(RwLock::new(HashMap::new())) }
+        Self {
+            connections: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     pub async fn broadcast(&self, event: Event) -> usize {
         let message = match serde_json::to_string(&event) {
             Ok(msg) => axum::extract::ws::Utf8Bytes::from(msg),
             Err(e) => {
-                error!("Couldn't broadcast event '{:?}' due to serialization error: {} ", event, e);
-                return 0
+                error!("Couldn't broadcast event '{event:?}' due to serialization error: {e} ");
+                return 0;
             }
         };
 
@@ -58,11 +60,11 @@ impl WebSocketManager {
     pub async fn add_connection(
         &self,
         tx: UnboundedSender<axum::extract::ws::Utf8Bytes>,
-        events: Option<Vec<EventType>>
+        events: Option<Vec<EventType>>,
     ) -> String {
         let event_mask = match events {
             Some(event_types) => EventType::events_to_mask(&event_types),
-            None => EventType::all_bits()
+            None => EventType::all_bits(),
         };
 
         loop {
@@ -89,7 +91,7 @@ pub async fn handle_websocket(connection: WebSocketConnection, manager: WebSocke
 
     // Add connection.
     let connection_id = manager.add_connection(tx, connection.1).await;
-    debug!("WebSocket connection established: {}", connection_id);
+    debug!("WebSocket connection established: {connection_id}");
 
     // Writer task.
     let connection_id_for_tx = connection_id.clone();
@@ -127,20 +129,22 @@ pub async fn handle_websocket(connection: WebSocketConnection, manager: WebSocke
     let rx_task = tokio::spawn(async move {
         while let Some(msg) = receiver.next().await {
             match msg {
-                Ok(axum::extract::ws::Message::Text(text)) => debug!("Received WebSocket message from {}: {:?}", connection_id, text),
+                Ok(axum::extract::ws::Message::Text(text)) => {
+                    debug!("Received WebSocket message from {connection_id}: {text:?}")
+                }
                 Ok(axum::extract::ws::Message::Ping(ping)) => {
                     if ping_tx.send(ping).is_err() {
                         break;
                     }
-                },
+                }
                 Ok(axum::extract::ws::Message::Close(_)) => {
-                    debug!("WebSocket connection closed: {}", connection_id);
+                    debug!("WebSocket connection closed: {connection_id}");
                     break;
-                },
+                }
                 Err(e) => {
-                    error!("WebSocket error for {}: {}", connection_id, e);
+                    error!("WebSocket error for {connection_id}: {e}");
                     break;
-                },
+                }
                 _ => {}
             }
         }
@@ -153,5 +157,5 @@ pub async fn handle_websocket(connection: WebSocketConnection, manager: WebSocke
 
     // Remove connection after either task finishes.
     manager.remove_connection(&connection_id_for_tx).await;
-    debug!("WebSocket connection cleaned up: {}", connection_id_for_tx);
+    debug!("WebSocket connection cleaned up: {connection_id_for_tx}");
 }
