@@ -40,17 +40,18 @@ The modem section configures the cellular modem connection and behavior.
 
 ### Fields
 
-| Field                     | Type    | Default        | Description                                    |
-|---------------------------|---------|----------------|------------------------------------------------|
-| `device`                  | String  | `"/dev/ttyS0"` | Serial device path for the modem               |
-| `baud_rate`               | Number  | `115200`       | Serial baud rate                               |
-| `gnss_enabled`            | Boolean | `false`        | Enable GPS/GNSS functionality                  |
-| `gnss_report_interval`    | Number  | `0`            | GNSS report interval in seconds (0 = disabled) |
-| `gpio_power_pin`          | Boolean | `false`        | Use GPIO power pin control                     |
-| `gpio_repower`            | Boolean | `true`         | Allow GPIO repower operations                  |
-| `cmd_channel_buffer_size` | Number  | `32`           | Command channel buffer size                    |
-| `read_buffer_size`        | Number  | `4096`         | Read buffer size in bytes                      |
-| `line_buffer_size`        | Number  | `4096`         | Line buffer size in bytes                      |
+| Field                     | Type   | Default        | Description                                                                  |
+|---------------------------|--------|----------------|------------------------------------------------------------------------------|
+| `device`                  | String | `"/dev/ttyS0"` | Serial device path for the modem                                             |
+| `baud_rate`               | u32    | `115200`       | Serial baud rate                                                             |
+| `gnss_enabled`            | bool   | `false`        | Enable GPS/GNSS functionality                                                |
+| `gnss_report_interval`    | u32    | `0`            | GNSS report interval in seconds (0 = disabled)                               |
+| `cmd_channel_buffer_size` | usize  | `32`           | Command channel buffer size                                                  |
+| `read_buffer_size`        | usize  | `4096`         | Read buffer size in bytes                                                    |
+| `line_buffer_size`        | usize  | `4096`         | Line buffer size in bytes                                                    |
+| `gpio_enabled`            | bool   | `false`        | Should the GPIO power pin be toggled on startup. **Requires `gpio` feature** |
+| `gpio_power_pin`          | u8     | `4`            | GPIO power pin, uses Waveshare GSM Hat default. **Requires `gpio` feature**  |
+| `gpio_repower`            | bool   | `true`         | Toggle power pin on worker connection failure. **Requires `gpio` feature**   |
 
 ### Example
 
@@ -60,17 +61,19 @@ device = "/dev/ttyUSB0"
 baud_rate = 115200
 gnss_enabled = true
 gnss_report_interval = 30
-gpio_power_pin = true
-gpio_repower = true
 cmd_channel_buffer_size = 64
 read_buffer_size = 8192
 line_buffer_size = 8192
+gpio_enabled = true
+gpio_power_pin = 4
+gpio_repower = true
 ```
 
 ### Notes
 
 - All fields are optional and will use defaults if not specified.
 - GNSS reporting interval of 0 disables periodic reports.
+- GPIO options are only used if compiled with `gpio` feature.
 
 ## HTTP Server Configuration
 
@@ -80,11 +83,11 @@ The HTTP section configures the web server for REST API and WebSocket connection
 
 | Field                            | Type                            | Default            | Description                               |
 |----------------------------------|---------------------------------|--------------------|-------------------------------------------|
-| `enabled`                        | Boolean                         | `false`            | Enable HTTP server                        |
+| `enabled`                        | bool                            | `false`            | Enable HTTP server                        |
 | `address`                        | String                          | `"127.0.0.1:3000"` | Server bind address and port              |
-| `send_international_format_only` | Boolean                         | `true`             | Only send numbers in international format |
-| `require_authentication`         | Boolean                         | `true`             | Require authentication for API access     |
-| `websocket_enabled`              | Boolean                         | `true`             | Enable WebSocket support                  |
+| `send_international_format_only` | bool                            | `true`             | Only send numbers in international format |
+| `require_authentication`         | bool                            | `true`             | Require authentication for API access     |
+| `websocket_enabled`              | bool                            | `true`             | Enable WebSocket support                  |
 | `phone_number`                   | String                          | `null`             | Default phone number for the modem        |
 | `tls`                            | [TLSConfig](#tls-configuration) | `null`             | TLS configuration (see below)             |
 
@@ -141,13 +144,13 @@ Webhooks allow the application to send HTTP requests when specific events occur.
 
 ### Fields
 
-| Field             | Type   | Default        | Description                          |
-|-------------------|--------|----------------|--------------------------------------|
-| `url`             | String | -              | Webhook endpoint URL                 |
-| `expected_status` | Number | `null`         | Expected HTTP status code (optional) |
-| `events`          | Array  | `["incoming"]` | List of events to trigger webhook    |
-| `headers`         | Object | `null`         | Custom HTTP headers                  |
-| `certificate`     | String | `null`         | Path to custom CA certificate        |
+| Field             | Type     | Default        | Description                          |
+|-------------------|----------|----------------|--------------------------------------|
+| `url`             | String   | -              | Webhook endpoint URL                 |
+| `expected_status` | u16      | `null`         | Expected HTTP status code (optional) |
+| `events`          | String[] | `["incoming"]` | List of events to trigger webhook    |
+| `headers`         | Object   | `null`         | Custom HTTP headers                  |
+| `certificate`     | String   | `null`         | Path to custom CA certificate        |
 
 ### Example
 
@@ -175,17 +178,17 @@ certificate = "/path/to/internal-ca.crt"
 
 ## Sentry Configuration (Optional)
 
-Sentry integration provides error tracking and performance monitoring. This section is only available when compiled with the `sentry` feature.
+Sentry integration provides error tracking. This section is only available when compiled with the `sentry` feature.
 
 ### Fields
 
-| Field              | Type    | Default  | Description                              |
-|--------------------|---------|----------|------------------------------------------|
-| `dsn`              | String  | -        | Sentry Data Source Name                  |
-| `environment`      | String  | `null`   | Environment name (e.g., "production")    |
-| `server_name`      | String  | `null`   | Server name for event tagging            |
-| `debug`            | Boolean | `false`  | Enable Sentry debug mode                 |
-| `send_default_pii` | Boolean | `true`   | Send personally identifiable information |
+| Field              | Type   | Default  | Description                              |
+|--------------------|--------|----------|------------------------------------------|
+| `dsn`              | String | -        | Sentry Data Source Name                  |
+| `environment`      | String | `null`   | Environment name (e.g., "production")    |
+| `server_name`      | String | `null`   | Server name for event tagging            |
+| `debug`            | bool   | `false`  | Enable Sentry debug mode                 |
+| `send_default_pii` | bool   | `true`   | Send personally identifiable information |
 
 ### Example
 
