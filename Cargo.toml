@@ -1,12 +1,16 @@
 [package]
 name = "sms-server"
-version = "2.3.2"
+version = "2.3.3"
 edition = "2021"
 license = "AGPL-3.0-only"
 build = "build.rs"
 description = "SMS server for GSM modem hardware with HTTP/WebSocket APIs, encrypted message storage, delivery tracking, and GNSS location support. Designed for Raspberry Pi + GSM HAT setup."
 keywords = ["sms", "gsm", "sim", "sms-server"]
 categories = ["hardware-support", "web-programming::websocket", "web-programming::http-server", "database"]
+homepage = "https://github.com/morgverd/sms-server"
+repository = "https://github.com/morgverd/sms-server"
+readme = "README.md"
+authors = ["morgverd <morgverd@gmail.com>"]
 
 [profile.release]
 lto = true
@@ -33,6 +37,7 @@ tls-rustls = ["dep:rustls", "reqwest/rustls-tls", "sentry?/rustls", "axum-server
 tls-native = ["reqwest/native-tls", "sentry?/native-tls", "axum-server?/tls-openssl"]
 
 [dependencies]
+sms-types = { path = "../sms-types" }
 sms-pdu = "1.1.0"
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "parking_lot"] }
 serde = { version = "1.0.219", features = ["derive"] }

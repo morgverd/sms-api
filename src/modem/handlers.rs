@@ -10,6 +10,15 @@ use sms_pdu::pdu::{DeliverPdu, StatusReportPdu};
 use tokio::sync::mpsc;
 use tracing::log::{debug, warn};
 
+/// Invoked early by receivers to handle an edge case where certain carriers respond
+/// to automated test numbers using an alphanumeric sender ID instead of a numeric one.
+fn get_real_number(phone_number: String) -> String {
+    match phone_number.as_str() {
+        "ASDAmobile" => "2732".to_string(),
+        _ => phone_number,
+    }
+}
+
 pub struct ModemEventHandlers {
     worker_event_tx: mpsc::UnboundedSender<WorkerEvent>,
 }
@@ -67,10 +76,9 @@ impl ModemEventHandlers {
                     DeliverPdu::try_from(content_hex.as_slice()).map_err(|e| anyhow!(e))?;
 
                 // Decode incoming message data to get user data header which is required for multipart messages.
-                let phone_number = deliver_pdu.originating_address.to_string();
                 let incoming = match deliver_pdu.get_message_data().decode_message() {
                     Ok(msg) => SMSIncomingMessage {
-                        phone_number,
+                        phone_number: get_real_number(deliver_pdu.originating_address.to_string()),
                         user_data_header: msg.udh,
                         content: msg.text,
                     },
@@ -86,7 +94,7 @@ impl ModemEventHandlers {
 
                 let report = SMSIncomingDeliveryReport {
                     status: status_report_pdu.status,
-                    phone_number: status_report_pdu.recipient_address.to_string(),
+                    phone_number: get_real_number(status_report_pdu.recipient_address.to_string()),
                     reference_id: status_report_pdu.message_reference,
                 };
                 Ok(Some(ModemIncomingMessage::DeliveryReport(report)))

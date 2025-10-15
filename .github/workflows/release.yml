@@ -70,9 +70,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/sms-api
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/sms-server
           else
-            strip target/${{ matrix.target }}/release/sms-api
+            strip target/${{ matrix.target }}/release/sms-server
           fi
 
       - name: Upload artifact
@@ -115,10 +115,10 @@ jobs:
             Automated release for version ${{ github.ref_name }}
             
             ### Downloads
-            - **Linux x64**: sms-api-linux-x64
-            - **Linux x64 with Sentry**: sms-api-linux-x64-sentry
-            - **Linux ARM64**: sms-api-linux-aarch64
-            - **Linux ARM64 with Sentry**: sms-api-linux-aarch64-sentry
+            - **Linux x64**: sms-server-linux-x64
+            - **Linux x64 with Sentry**: sms-server-linux-x64-sentry
+            - **Linux ARM64**: sms-server-linux-aarch64
+            - **Linux ARM64 with Sentry**: sms-server-linux-aarch64-sentry
 
       - name: Upload Linux x64 binary
         uses: actions/upload-release-asset@v1
