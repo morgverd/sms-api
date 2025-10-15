@@ -2997,7 +2997,7 @@ dependencies = [
 
 [[package]]
 name = "sms-server"
-version = "2.3.3"
+version = "2.3.4"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3021,7 +3021,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sms-pdu",
- "sms-types",
  "sqlx",
  "tokio",
  "tokio-serial",
@@ -3031,14 +3030,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
-]
-
-[[package]]
-name = "sms-types"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

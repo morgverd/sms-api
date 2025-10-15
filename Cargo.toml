@@ -1,6 +1,6 @@
 [package]
 name = "sms-server"
-version = "2.3.3"
+version = "2.3.4"
 edition = "2021"
 license = "AGPL-3.0-only"
 build = "build.rs"
@@ -37,7 +37,6 @@ tls-rustls = ["dep:rustls", "reqwest/rustls-tls", "sentry?/rustls", "axum-server
 tls-native = ["reqwest/native-tls", "sentry?/native-tls", "axum-server?/tls-openssl"]
 
 [dependencies]
-sms-types = { path = "../sms-types" }
 sms-pdu = "1.1.0"
 tokio = { version = "1.45.1", features = ["rt-multi-thread", "parking_lot"] }
 serde = { version = "1.0.219", features = ["derive"] }
